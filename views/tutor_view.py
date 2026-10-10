@@ -30,6 +30,15 @@ def gerar_grafico_peso_pet(pesos_historico):
 def render_tutor_dashboard(supabase):
   st.title("🐾 CartãoPet V2: Painel do Tutor e Saúde Animal")
 
+  # Validação de segurança da sessão
+  user_id = st.session_state.get("user_id")
+  if not user_id:
+    st.error(
+        "Sessão inválida ou expirada. Por favor, termine sessão e volte a"
+        " entrar."
+    )
+    return
+
   tutor_tab1, tutor_tab2, tutor_tab3 = st.tabs([
       "🐶 Gestão de Saúde & Vacinação",
       "🌸 Controlo Especializado (Fêmeas & Ninhadas)",
@@ -50,21 +59,54 @@ def render_tutor_dashboard(supabase):
         idade_pet = st.number_input("Idade (Anos)", 0, 30, 1)
         peso_atual = st.number_input("Peso Atual (kg)", 0.1, 100.0, 5.0)
 
-        if st.form_submit_button("Salvar Pet na Carteira"):
-          try:
-            supabase.table("animais").insert({
-                "tutor_id": st.session_state["user_id"],
-                "nome": nome_pet,
-                "especie": especie_pet,
-                "raca": raca_pet,
-                "idade_anos": idade_pet,
-                "peso": peso_atual,
-            }).execute()
-            st.success(f"Animal {nome_pet} registado com sucesso!")
-          except Exception as e:
-            st.error(f"Erro ao guardar: {e}")
+        submitted_pet = st.form_submit_button("Salvar Pet na Carteira")
+        if submitted_pet:
+          if not nome_pet:
+            st.warning("Por favor, insira o nome do animal.")
+          else:
+            try:
+              # Inserção correta vinculada ao user_id logado
+              supabase.table("animais").insert({
+                  "tutor_id": user_id,
+                  "nome": nome_pet,
+                  "especie": especie_pet,
+                  "raca": raca_pet,
+                  "sexo": sexo_pet,
+                  "idade_anos": idade_pet,
+                  "peso": peso_atual,
+              }).execute()
+              st.success(
+                  f"Animal **{nome_pet}** registado com sucesso na base de"
+                  " dados!"
+              )
+              st.rerun()
+            except Exception as e:
+              st.error(f"Erro ao guardar animal no Supabase: {e}")
 
     with col_list:
+      st.subheader("Os Meus Animais Registados")
+      try:
+        # Consulta dinâmica dos animais do tutor no Supabase
+        response = (
+            supabase.table("animais").select("*").eq("tutor_id", user_id).execute()
+        )
+        animais = response.data
+
+        if animais:
+          df_animais = pd.DataFrame(animais)
+          st.dataframe(
+              df_animais[["nome", "especie", "raca", "sexo", "peso"]],
+              use_container_width=True,
+          )
+        else:
+          st.info(
+              "Ainda não tens animais registados. Usa o formulário ao lado para"
+              " adicionar o primeiro!"
+          )
+      except Exception as e:
+        st.warning("A carregar animais da base de dados...")
+
+      st.markdown("---")
       st.subheader("Evolução de Peso e Crescimento")
       historico_ex = [
           {"data": "2026-02-10", "peso": 4.2},
@@ -104,8 +146,9 @@ def render_tutor_dashboard(supabase):
             f"📅 **Previsão do Próximo Cio:** {proximo_cio.strftime('%d/%m/%Y')}"
         )
         st.info(
-            "✨ **Janela Fértil:** Entre {inicio_fertil.strftime('%d/%m/%Y')} e"
-            f" {fim_fertil.strftime('%d/%m/%Y')}"
+            "✨ **Janela Fértil:** Entre"
+            f" **{inicio_fertil.strftime('%d/%m/%Y')}** e"
+            f" **{fim_fertil.strftime('%d/%m/%Y')}**"
         )
 
     with sub_tab2:
