@@ -193,4 +193,75 @@ def render_tutor_dashboard(supabase):
               "Regista primeiro um animal na tua carteira para adicionar"
               " vacinas."
           )
-          st.
+          st.form_submit_button("Guardar", disabled=True)
+        else:
+          pet_opcoes = {a["nome"]: a["id"] for a in animais}
+          pet_sel = st.selectbox("Selecionar Pet", list(pet_opcoes.keys()))
+
+          nome_vacina = st.text_input(
+              "Nome da Vacina / Doenças Cobertas (Ex: V8, V10, Raiva)"
+          )
+          data_aplicacao = st.date_input("Data de Aplicação")
+          proxima_dose = st.date_input(
+              "Data do Próximo Reforço (Vencimento para Alertas)"
+          )
+
+          if st.form_submit_button("Registar Vacina"):
+            try:
+              supabase.table("registos_medicos_v2").insert({
+                  "animal_id": pet_opcoes[pet_sel],
+                  "perfil_utilizador": "tutor",
+                  "tipo": "vacina",
+                  "nome_produto": nome_vacina,
+                  "data_aplicacao": str(data_aplicacao),
+                  "proxima_dose": str(proxima_dose),
+              }).execute()
+              st.success("Vacina registada com sucesso na caderneta digital!")
+            except Exception as e:
+              st.error(f"Erro ao registar vacina: {e}")
+
+    with tab_d:
+      with st.form("form_tutor_desp"):
+        st.markdown("**Registar Desparasitação (Interna ou Externa)**")
+        try:
+          animais_res_d = (
+              supabase.table("animais")
+              .select("id, nome")
+              .eq("tutor_id", user_id)
+              .execute()
+          )
+          animais_d = animais_res_d.data
+        except Exception:
+          animais_d = []
+
+        if not animais_d:
+          st.warning("Regista primeiro um animal.")
+          st.form_submit_button("Guardar", disabled=True)
+        else:
+          pet_opcoes_d = {a["nome"]: a["id"] for a in animais_d}
+          pet_sel_d = st.selectbox(
+              "Selecionar Pet", list(pet_opcoes_d.keys()), key="pet_d"
+          )
+          tipo_desp = st.selectbox(
+              "Tipo de Desparasitação",
+              ["Interna (Comprimido/Xarope)", "Externa (Pipeta/Coleira)"],
+          )
+          nome_produto = st.text_input(
+              "Nome do Produto (Ex: Drontal, NexGard)"
+          )
+          data_aplicacao_d = st.date_input("Data de Aplicação", key="d_app")
+          proxima_dose_d = st.date_input("Próxima Dose Recomendada", key="d_prox")
+
+          if st.form_submit_button("Registar Desparasitação"):
+            try:
+              supabase.table("registos_medicos_v2").insert({
+                  "animal_id": pet_opcoes_d[pet_sel_d],
+                  "perfil_utilizador": "tutor",
+                  "tipo": "desparasitacao",
+                  "nome_produto": f"{tipo_desp} - {nome_produto}",
+                  "data_aplicacao": str(data_aplicacao_d),
+                  "proxima_dose": str(proxima_dose_d),
+              }).execute()
+              st.success("Desparasitação registada com sucesso!")
+            except Exception as e:
+              st.error(f"Erro ao registar desparasitação: {e}")
