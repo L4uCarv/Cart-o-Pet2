@@ -4,7 +4,6 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
 
-
 def gerar_grafico_peso_pet(pesos_historico):
   fig, ax = plt.subplots(figsize=(6, 3))
   if pesos_historico:
