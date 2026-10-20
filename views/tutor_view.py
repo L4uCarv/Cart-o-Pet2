@@ -225,7 +225,7 @@ def render_tutor_dashboard(supabase):
 
     col_vacina, col_desp = st.columns(2)
 
-    # 1. COLUNA DE VACINAS COM INFO_VACINAS E CÁLCULO AUTOMÁTICO
+    # 1. COLUNA DE VACINAS COM SELEÇÃO CUSTOMIZÁVEL DE DOENÇAS
     with col_vacina:
       st.subheader("🛡️ Consulta de Vacinas")
       
@@ -238,19 +238,24 @@ def render_tutor_dashboard(supabase):
           pet_sel = st.selectbox("Selecionar Pet", list(pet_opcoes.keys()), key="sel_pet_v")
           pet_sel_id = pet_opcoes[pet_sel]
 
-          # Seleção inteligente baseada no dicionário INFO_VACINAS
           nome_vacina = st.selectbox("Tipo de Vacina", list(INFO_VACINAS.keys()), key="input_nome_v")
           
-          # Exibir doenças cobertas automaticamente
+          # Obter as doenças predefinidas para a vacina escolhida
           detalhes_vacina = INFO_VACINAS[nome_vacina]
-          st.info(f"🦠 **Doenças Cobertas:** {', '.join(detalhes_vacina['doencas'])}")
+          
+          # Permitir ao utilizador selecionar ou remover doenças cobertas
+          doencas_selecionadas = st.multiselect(
+              "Doenças Cobertas (Pode ajustar/adicionar)",
+              options=["Cinomose", "Parvovirose", "Coronavirose", "Hepatite Infecciosa", "Adenovirose Tipo 2", "Parainfluenza", "Leptospirose", "Raiva Canina", "Bordetella bronchiseptica", "Giardia duodenalis"],
+              default=detalhes_vacina['doencas'],
+              key="multiselect_doencas_v"
+          )
 
           peso_vacina = st.number_input("Peso no Momento (kg)", min_value=0.0, max_value=100.0, value=5.0, key="input_peso_v")
           idade_vacina = st.text_input("Idade no Momento (Ex: 4 meses)", key="input_idade_v")
           
           data_aplicacao = st.date_input("Data Aplicação", value=date.today(), key="input_data_v")
           
-          # Escolha de fase etária para cálculo automático de dias
           fase_etaria = st.radio("Fase do Pet para Intervalo", ["Filhote", "Adulto"], horizontal=True, key="fase_etaria_v")
           
           dias_intervalo = detalhes_vacina["intervalo_filhote"] if fase_etaria == "Filhote" else detalhes_vacina["intervalo_adulto"]
@@ -260,11 +265,13 @@ def render_tutor_dashboard(supabase):
 
           if st.button("Salvar Vacina", type="primary", key="btn_salvar_v"):
             try:
+              # Guardar a vacina juntamente com as doenças selecionadas (convertidas em string separada por vírgulas)
+              doencas_str = ", ".join(doencas_selecionadas)
               supabase.table("registos_medicos_v2").insert({
                   "animal_id": pet_sel_id,
                   "perfil_utilizador": "tutor",
                   "tipo": "vacina",
-                  "nome_produto": nome_vacina,
+                  "nome_produto": f"{nome_vacina} ({doencas_str})",
                   "peso_clinico": peso_vacina,
                   "fabricante": idade_vacina,
                   "data_aplicacao": str(data_aplicacao),
@@ -282,13 +289,13 @@ def render_tutor_dashboard(supabase):
         if res_all_v.data:
           df_all_v = pd.DataFrame(res_all_v.data)
           df_all_v = df_all_v.rename(columns={
-              "nome_produto": "Vacina",
+              "nome_produto": "Vacina & Doenças",
               "peso_clinico": "Peso (kg)",
               "fabricante": "Idade",
               "data_aplicacao": "Aplicação",
               "proxima_dose": "Próxima Dose"
           })
-          st.dataframe(df_all_v[["Vacina", "Peso (kg)", "Idade", "Aplicação", "Próxima Dose"]], use_container_width=True)
+          st.dataframe(df_all_v[["Vacina & Doenças", "Peso (kg)", "Idade", "Aplicação", "Próxima Dose"]], use_container_width=True)
         else:
           st.info("Sem registos de vacinas.")
       except Exception:
