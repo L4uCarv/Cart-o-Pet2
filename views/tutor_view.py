@@ -4,6 +4,40 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
 
+# Dicionário integrado de informações e intervalos de vacinas
+INFO_VACINAS = {
+    "Polivalente V10": {
+        "cat": "Vacina Polivalente",
+        "doencas": ["Cinomose", "Parvovirose", "Coronavirose", "Hepatite Infecciosa", "Adenovirose Tipo 2", "Parainfluenza", "Leptospirose"],
+        "intervalo_filhote": 21,
+        "intervalo_adulto": 365,
+    },
+    "Polivalente V8": {
+        "cat": "Vacina Polivalente",
+        "doencas": ["Cinomose", "Parvovirose", "Coronavirose", "Hepatite Infecciosa", "Adenovirose Tipo 2", "Parainfluenza"],
+        "intervalo_filhote": 21,
+        "intervalo_adulto": 365,
+    },
+    "Vacina Antirrábica": {
+        "cat": "Vacina Essencial",
+        "doencas": ["Raiva Canina"],
+        "intervalo_filhote": 365,
+        "intervalo_adulto": 365,
+    },
+    "Vacina contra Tosse dos Canis (Gripe)": {
+        "cat": "Vacina Complementar",
+        "doencas": ["Bordetella bronchiseptica", "Parainfluenza"],
+        "intervalo_filhote": 21,
+        "intervalo_adulto": 365,
+    },
+    "Vacina contra Giardíase": {
+        "cat": "Vacina Complementar",
+        "doencas": ["Giardia duodenalis"],
+        "intervalo_filhote": 21,
+        "intervalo_adulto": 365,
+    },
+}
+
 
 def gerar_grafico_peso_pet(pesos_historico):
   fig, ax = plt.subplots(figsize=(6, 3))
@@ -191,13 +225,12 @@ def render_tutor_dashboard(supabase):
 
     col_vacina, col_desp = st.columns(2)
 
-    # 1. COLUNA DE VACINAS COM BOTÃO POPOVER (JANELA FLUTUANTE)
+    # 1. COLUNA DE VACINAS COM INFO_VACINAS E CÁLCULO AUTOMÁTICO
     with col_vacina:
       st.subheader("🛡️ Consulta de Vacinas")
       
-      # Botão flutuante (popover) que abre a janela para preencher a vacina
       with st.popover("➕ Registar Nova Vacina"):
-        st.markdown("**Registar Vacina**")
+        st.markdown("**Registar Vacina Inteligente**")
         if not animais_lista:
           st.warning("Regista primeiro um animal.")
         else:
@@ -205,11 +238,25 @@ def render_tutor_dashboard(supabase):
           pet_sel = st.selectbox("Selecionar Pet", list(pet_opcoes.keys()), key="sel_pet_v")
           pet_sel_id = pet_opcoes[pet_sel]
 
-          nome_vacina = st.text_input("Nome da Vacina (Ex: V8, Raiva)", key="input_nome_v")
+          # Seleção inteligente baseada no dicionário INFO_VACINAS
+          nome_vacina = st.selectbox("Tipo de Vacina", list(INFO_VACINAS.keys()), key="input_nome_v")
+          
+          # Exibir doenças cobertas automaticamente
+          detalhes_vacina = INFO_VACINAS[nome_vacina]
+          st.info(f"🦠 **Doenças Cobertas:** {', '.join(detalhes_vacina['doencas'])}")
+
           peso_vacina = st.number_input("Peso no Momento (kg)", min_value=0.0, max_value=100.0, value=5.0, key="input_peso_v")
-          idade_vacina = st.text_input("Idade no Momento (Ex: 6 meses)", key="input_idade_v")
-          data_aplicacao = st.date_input("Data Aplicação", key="input_data_v")
-          proxima_dose = st.date_input("Próximo Reforço", key="input_prox_v")
+          idade_vacina = st.text_input("Idade no Momento (Ex: 4 meses)", key="input_idade_v")
+          
+          data_aplicacao = st.date_input("Data Aplicação", value=date.today(), key="input_data_v")
+          
+          # Escolha de fase etária para cálculo automático de dias
+          fase_etaria = st.radio("Fase do Pet para Intervalo", ["Filhote", "Adulto"], horizontal=True, key="fase_etaria_v")
+          
+          dias_intervalo = detalhes_vacina["intervalo_filhote"] if fase_etaria == "Filhote" else detalhes_vacina["intervalo_adulto"]
+          proxima_dose_calculada = data_aplicacao + timedelta(days=dias_intervalo)
+          
+          st.success(f"📅 **Próximo Reforço Calculado:** {proxima_dose_calculada.strftime('%d/%m/%Y')}")
 
           if st.button("Salvar Vacina", type="primary", key="btn_salvar_v"):
             try:
@@ -221,7 +268,7 @@ def render_tutor_dashboard(supabase):
                   "peso_clinico": peso_vacina,
                   "fabricante": idade_vacina,
                   "data_aplicacao": str(data_aplicacao),
-                  "proxima_dose": str(proxima_dose),
+                  "proxima_dose": str(proxima_dose_calculada),
               }).execute()
               st.success("Vacina registada com sucesso!")
               st.rerun()
@@ -247,7 +294,7 @@ def render_tutor_dashboard(supabase):
       except Exception:
         st.info("A carregar...")
 
-    # 2. COLUNA DE DESPARASITAÇÕES COM BOTÃO POPOVER
+    # 2. COLUNA DE DESPARASITAÇÕES
     with col_desp:
       st.subheader("💊 Consulta de Desparasitações")
       
