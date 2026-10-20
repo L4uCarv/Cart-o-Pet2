@@ -78,7 +78,7 @@ def render_tutor_dashboard(supabase):
     with col_reg:
       st.subheader("Registar Novo Animal")
       
-      # Inicializar chaves no session_state para permitir limpeza correta
+      # Inicializar chaves no session_state para limpeza correta
       if "reg_nome_pet" not in st.session_state:
         st.session_state["reg_nome_pet"] = ""
       if "reg_esp_pet" not in st.session_state:
@@ -145,18 +145,41 @@ def render_tutor_dashboard(supabase):
         animais = response.data
 
         if animais:
-          df_animais = pd.DataFrame(animais)
-          st.dataframe(
-              df_animais[["nome", "especie", "raca", "sexo", "peso"]],
-              use_container_width=True,
-          )
+          # Processar dados para incluir colunas formatadas de vacinas e desparasitações resumidas
+          lista_formatada = []
+          for a in animais:
+            # Buscar contagem de vacinas e desparasitações por animal
+            try:
+              v_res = supabase.table("registos_medicos_v2").select("id", count="exact").eq("animal_id", a["id"]).eq("tipo", "vacina").execute()
+              total_v = v_res.count if hasattr(v_res, 'count') and v_res.count is not None else len(v_res.data or [])
+            except Exception:
+              total_v = 0
+
+            try:
+              d_res = supabase.table("registos_medicos_v2").select("id", count="exact").eq("animal_id", a["id"]).eq("tipo", "desparasitacao").execute()
+              total_d = d_res.count if hasattr(d_res, 'count') and d_res.count is not None else len(d_res.data or [])
+            except Exception:
+              total_d = 0
+
+            lista_formatada.append({
+                "Nome": a["nome"],
+                "Espécie": a["especie"],
+                "Raça": a["raca"],
+                "Sexo": a["sexo"],
+                "Peso (kg)": a["peso"],
+                "Vacinas Registadas": total_v,
+                "Desparasitações": total_d
+            })
+
+          df_animais = pd.DataFrame(lista_formatada)
+          st.dataframe(df_animais, use_container_width=True)
         else:
           st.info(
               "Ainda não tens animais registados. Usa o formulário ao lado para"
               " adicionar o primeiro!"
           )
-      except Exception:
-        st.warning("A carregar animais da base de dados...")
+      except Exception as e:
+        st.warning(f"A carregar animais da base de dados... ({e})")
 
       st.markdown("---")
       st.subheader("Evolução de Peso e Crescimento")
