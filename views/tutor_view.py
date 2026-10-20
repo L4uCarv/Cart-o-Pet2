@@ -26,14 +26,35 @@ def gerar_grafico_peso_pet(pesos_historico):
   return img_buffer
 
 
-def calcular_idade_anos(data_nascimento):
+def calcular_idade_pet(data_nascimento):
   hoje = date.today()
-  anos = (
-      hoje.year
-      - data_nascimento.year
-      - ((hoje.month, hoje.day) < (data_nascimento.month, data_nascimento.day))
-  )
-  return max(0, anos)
+  if data_nascimento > hoje:
+    return "Data inválida", 0.0
+
+  # Cálculo da diferença em anos e meses
+  anos = hoje.year - data_nascimento.year
+  meses = hoje.month - data_nascimento.month
+  dias = hoje.day - data_nascimento.day
+
+  if dias < 0:
+    meses -= 1
+  if meses < 0:
+    anos -= 1
+    meses += 12
+
+  total_meses = anos * 12 + meses
+
+  # Para guardar na base de dados (em anos decimais ou inteiros para o campo idade_anos)
+  idade_anos_decimal = round(total_meses / 12, 1)
+
+  if total_meses < 1:
+    return "Menos de 1 mês", idade_anos_decimal
+  elif total_meses < 12:
+    return f"{total_meses} meses", idade_anos_decimal
+  elif anos == 1:
+    return f"1 ano e {meses} meses" if meses > 0 else "1 ano", idade_anos_decimal
+  else:
+    return f"{anos} anos e {meses} meses" if meses > 0 else f"{anos} anos", idade_anos_decimal
 
 
 def render_tutor_dashboard(supabase):
@@ -68,11 +89,11 @@ def render_tutor_dashboard(supabase):
         # Calendário para data de nascimento e cálculo automático de idade
         data_nasc_pet = st.date_input(
             "Data de Nascimento do Pet",
-            value=date.today() - timedelta(days=365),
+            value=date.today() - timedelta(days=120),
             max_value=date.today(),
         )
-        idade_calculada = calcular_idade_anos(data_nasc_pet)
-        st.info(f"📅 Idade calculada automaticamente: **{idade_calculada} anos**")
+        descricao_idade, idade_decimal = calcular_idade_pet(data_nasc_pet)
+        st.info(f"📅 Idade calculada automaticamente: **{descricao_idade}**")
 
         peso_atual = st.number_input("Peso Atual (kg)", 0.1, 100.0, 5.0)
 
@@ -88,7 +109,7 @@ def render_tutor_dashboard(supabase):
                   "especie": especie_pet,
                   "raca": raca_pet,
                   "sexo": sexo_pet,
-                  "idade_anos": idade_calculada,
+                  "idade_anos": idade_decimal,
                   "peso": peso_atual,
               }).execute()
               st.success(
@@ -155,53 +176,4 @@ def render_tutor_dashboard(supabase):
 
       if st.button("Calcular Período Fértil"):
         proximo_cio = ultima_data_cio + timedelta(days=ciclo_medio)
-        inicio_fertil = proximo_cio + timedelta(days=9)
-        fim_fertil = proximo_cio + timedelta(days=15)
-        st.success(
-            f"📅 **Previsão do Próximo Cio:** {proximo_cio.strftime('%d/%m/%Y')}"
-        )
-        st.info(
-            "✨ **Janela Fértil:** Entre"
-            f" **{inicio_fertil.strftime('%d/%m/%Y')}** e"
-            f" **{fim_fertil.strftime('%d/%m/%Y')}**"
-        )
-
-    with sub_tab2:
-      st.subheader("Registo Detalhado por Ninhada")
-      with st.form("form_ninhada"):
-        nome_ninhada = st.text_input(
-            "Identificação da Ninhada / Mãe (Ex: Ninhada Luna)"
-        )
-        data_nasc = st.date_input("Data de Nascimento", value=date.today())
-        qtd_filhotes = st.number_input("Número de Filhotes Nascidos", 1, 20, 4)
-        if st.form_submit_button("Guardar Ninhada"):
-          st.success(
-              f"Ninhada '{nome_ninhada}' registada com {qtd_filhotes} filhotes!"
-          )
-
-    with sub_tab3:
-      st.subheader("Mapeamento Pós-Adoção de Filhotes")
-      with st.form("form_adocao"):
-        filhote_nome = st.text_input("Nome / Microchip do Filhote")
-        adotante_nome = st.text_input("Nome Completo do Adotante")
-        if st.form_submit_button("Registar Adoção"):
-          st.success(
-              f"Adoção do filhote **{filhote_nome}** mapeada com sucesso!"
-          )
-
-  with tutor_tab3:
-    st.subheader("💳 Gestão de Pagamentos & Transações")
-    st.info(
-        "Consulte aqui o histórico de pagamentos de consultas, exames e"
-        " transações efetuadas via Multicaixa / IBAN."
-    )
-
-    with st.form("form_pagamento_tutor"):
-      st.markdown("**Registar Pagamento / Comprovativo**")
-      st.text_input("Descrição do Serviço (Ex: Consulta Veterinária)")
-      st.number_input("Valor Pago (AOA)", min_value=0.0, value=5000.0)
-      st.file_uploader(
-          "Comprovativo de Pagamento (MCX / Talão)", type=["jpg", "png", "pdf"]
-      )
-      if st.form_submit_button("Submeter Comprovativo"):
-        st.success("Comprovativo de pagamento submetido com sucesso!")
+        inicio_fertil
