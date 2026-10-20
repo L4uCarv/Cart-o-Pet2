@@ -191,7 +191,7 @@ def render_tutor_dashboard(supabase):
 
     col_vacina, col_desp = st.columns(2)
 
-    # 1. COLUNA DE VACINAS
+    # 1. COLUNA DE VACINAS COM CAMPOS DE PESO E IDADE
     with col_vacina:
       st.subheader("🛡️ Registar & Consultar Vacinas")
       
@@ -206,6 +206,8 @@ def render_tutor_dashboard(supabase):
           pet_sel_id = pet_opcoes[pet_sel]
 
           nome_vacina = st.text_input("Nome da Vacina (Ex: V8, Raiva)", key="input_nome_v")
+          peso_vacina = st.number_input("Peso no Momento (kg)", min_value=0.0, max_value=100.0, value=5.0, key="input_peso_v")
+          idade_vacina = st.text_input("Idade no Momento (Ex: 6 meses, 1 ano)", key="input_idade_v")
           data_aplicacao = st.date_input("Data Aplicação", key="input_data_v")
           proxima_dose = st.date_input("Próximo Reforço", key="input_prox_v")
 
@@ -216,6 +218,8 @@ def render_tutor_dashboard(supabase):
                   "perfil_utilizador": "tutor",
                   "tipo": "vacina",
                   "nome_produto": nome_vacina,
+                  "peso_clinico": peso_vacina,
+                  "fabricante": idade_vacina,  # Utiliza o campo auxiliar existente para guardar a idade registada
                   "data_aplicacao": str(data_aplicacao),
                   "proxima_dose": str(proxima_dose),
               }).execute()
@@ -227,10 +231,18 @@ def render_tutor_dashboard(supabase):
       st.markdown("---")
       st.markdown("**📋 Histórico de Vacinas**")
       try:
-        res_all_v = supabase.table("registos_medicos_v2").select("nome_produto, data_aplicacao, proxima_dose").eq("tipo", "vacina").execute()
+        res_all_v = supabase.table("registos_medicos_v2").select("nome_produto, peso_clinico, fabricante, data_aplicacao, proxima_dose").eq("tipo", "vacina").execute()
         if res_all_v.data:
           df_all_v = pd.DataFrame(res_all_v.data)
-          st.dataframe(df_all_v[["nome_produto", "data_aplicacao", "proxima_dose"]], use_container_width=True)
+          # Renomear colunas para exibição amigável
+          df_all_v = df_all_v.rename(columns={
+              "nome_produto": "Vacina",
+              "peso_clinico": "Peso (kg)",
+              "fabricante": "Idade",
+              "data_aplicacao": "Aplicação",
+              "proxima_dose": "Próxima Dose"
+          })
+          st.dataframe(df_all_v[["Vacina", "Peso (kg)", "Idade", "Aplicação", "Próxima Dose"]], use_container_width=True)
         else:
           st.info("Sem registos de vacinas.")
       except Exception:
