@@ -38,24 +38,23 @@ INFO_VACINAS = {
     },
 }
 
-# Dicionário com categorias, sugestões rápidas e os dias corretos de efeito
+# Dicionário corrigido com categorias, sugestões rápidas e os dias corretos de efeito
 INFO_DESPARASITACAO = {
-    "Desparasitação Interna ( Xarope)": {
+    "Desparasitação Interna (Comprimido / Xarope)": {
         "cat": "Interna",
         "produtos_sugeridos": ["Drontal Plus", "Milbemax", "Canex", "Endogard", "Vetmax Plus"],
         "dias": 90,  # 3 meses
     },
     "Desparasitação Externa (Pipeta / Coleira / Spray)": {
         "cat": "Externa",
-        "produtos_sugeridos": [ "Bravecto", "Simparica", "Frontline", "Seresto"],
-        "dias": 30,  # 1 mês 
+        "produtos_sugeridos": ["Bravecto", "Simparica", "Frontline", "Seresto"],
+        "dias": 30,  # 1 mês
     },
     "Antipulgas (Comprimidos)": {
-        "cat": "Externa", 
-        "Produtos_sugeridos": ["NexGard", "Simparica"],
-        "dias": 30, # 1 mês
+        "cat": "Externa",
+        "produtos_sugeridos": ["NexGard", "Simparica"],
+        "dias": 30,  # 1 mês
     },
-    
 }
 
 
@@ -318,7 +317,7 @@ def render_tutor_dashboard(supabase):
       except Exception:
         st.info("A carregar...")
 
-    # 2. COLUNA DE DESPARASITAÇÕES COM SUGESTÕES RÁPIDAS + ESCRITA LIVRE E DIAS INTELIGENTES (30 ou 90 DIAS)
+    # 2. COLUNA DE DESPARASITAÇÕES COM SUGESTÕES RÁPIDAS + ESCRITA LIVRE E DIAS INTELIGENTES
     with col_desp:
       st.subheader("💊 Consulta de Desparasitações")
       
@@ -334,11 +333,9 @@ def render_tutor_dashboard(supabase):
           tipo_desp_chave = st.selectbox("Categoria", list(INFO_DESPARASITACAO.keys()), key="input_tipo_d")
           dados_cat = INFO_DESPARASITACAO[tipo_desp_chave]
 
-          # Exibe ajuda visual com as sugestões rápidas para consulta do utilizador
           sugestoes_str = ", ".join(dados_cat["produtos_sugeridos"])
           st.caption(f"💡 *Sugestões populares:* {sugestoes_str}")
 
-          # Campo de texto totalmente livre onde podes escrever qualquer nome (Ex: Simparica, Vetmax Plus, Drontal, etc.)
           nome_produto_livre = st.text_input("Nome do Produto / Comprimido / Xarope", placeholder="Escreva o nome do produto...", key="input_livre_prod_d")
 
           peso_desp = st.number_input("Peso no Momento (kg)", min_value=0.0, max_value=100.0, value=5.0, key="input_peso_d")
@@ -346,7 +343,6 @@ def render_tutor_dashboard(supabase):
 
           data_aplicacao_d = st.date_input("Data Aplicação", value=date.today(), key="input_data_d")
           
-          # Cálculo automático dos dias correto (30 dias para externo como NexGard / Simparica, 90 dias para interno)
           dias_intervalo_d = dados_cat["dias"]
           proxima_dose_calc_d = data_aplicacao_d + timedelta(days=dias_intervalo_d)
           
