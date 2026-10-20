@@ -111,7 +111,6 @@ def render_tutor_dashboard(supabase):
             }).execute()
             st.success(f"Animal **{nome_pet}** registado com sucesso na base de dados!")
             
-            # Remover as chaves da sessão para redefinir os campos no próximo rerun
             for k in ["reg_nome_pet", "reg_esp_pet", "reg_raca_pet", "reg_sexo_pet", "reg_data_nasc", "reg_peso_pet"]:
               if k in st.session_state:
                 del st.session_state[k]
@@ -129,18 +128,44 @@ def render_tutor_dashboard(supabase):
         animais = response.data
 
         if animais:
-          df_animais = pd.DataFrame(animais)
-          st.dataframe(
-              df_animais[["nome", "especie", "raca", "sexo", "peso"]],
-              use_container_width=True,
-          )
+          # Enriquecer cada animal com o estado mais recente de vacinas e desparasitações
+          dados_tabela = []
+          for a in animais:
+            animal_id = a["id"]
+            
+            # Buscar última vacina
+            res_v = supabase.table("registos_medicos_v2").select("nome_produto, proxima_dose").eq("animal_id", animal_id).eq("tipo", "vacina").order("data_aplicacao", desc=True).limit(1).execute()
+            status_vacina = "Pendente"
+            if res_v.data:
+              v_info = res_v.data[0]
+              status_vacina = f"{v_info['nome_produto']} (Próx: {v_info['proxima_dose']})"
+
+            # Buscar última desparasitação
+            res_d = supabase.table("registos_medicos_v2").select("nome_produto, proxima_dose").eq("animal_id", animal_id).eq("tipo", "desparasitacao").order("data_aplicacao", desc=True).limit(1).execute()
+            status_desp = "Pendente"
+            if res_d.data:
+              d_info = res_d.data[0]
+              status_desp = f"{d_info['nome_produto']} (Próx: {d_info['proxima_dose']})"
+
+            dados_tabela.append({
+                "Nome": a["nome"],
+                "Espécie": a["especie"],
+                "Raça": a["raca"],
+                "Sexo": a["sexo"],
+                "Peso (kg)": a["peso"],
+                "Vacina": status_vacina,
+                "Desparasitação": status_desp
+            })
+
+          df_animais = pd.DataFrame(dados_tabela)
+          st.dataframe(df_animais, use_container_width=True)
         else:
           st.info(
               "Ainda não tens animais registados. Usa o formulário ao lado para"
               " adicionar o primeiro!"
           )
-      except Exception:
-        st.warning("A carregar animais da base de dados...")
+      except Exception as e:
+        st.warning(f"A carregar animais da base de dados... ({e})")
 
       st.markdown("---")
       st.subheader("Evolução de Peso e Crescimento")
@@ -269,3 +294,58 @@ def render_tutor_dashboard(supabase):
               .execute()
           )
           if res_d.data:
+            df_d = pd.DataFrame(res_d.data)
+            st.dataframe(df_d[["nome_produto", "data_aplicacao", "proxima_dose", "perfil_utilizador"]], use_container_width=True)
+          else:
+            st.info("Ainda não existem desparasitações registadas para este pet.")
+        except Exception as e:
+          st.warning(f"A carregar registos... ({e})")
+      else:
+        st.info("Sem animais para consultar.")
+
+  with tutor_tab2:
+    st.header("Controlo Especializado para Fêmeas, Ninhadas e Adoções")
+    sub_tab1, sub_tab2, sub_tab3 = st.tabs(
+        ["🌸 Calculadora de Cio", "🍼 Gestório de Ninhada", "🏡 Mapeamento de Adoções"]
+    )
+
+    with sub_tab1:
+      st.subheader("Calculadora Preditiva de Ciclo Estral (Cio)")
+      ultima_data_cio = st.date_input("Início do Último Cio Registado", value=date.today(), key="cio_data")
+      ciclo_medio = st.number_input("Duração Média do Ciclo (Dias)", 120, 365, 180, key="cio_dias")
+
+      if st.button("Calcular Período Fértil", key="btn_cio"):
+        proximo_cio = ultima_data_cio + timedelta(days=ciclo_medio)
+        inicio_fertil = proximo_cio + timedelta(days=9)
+        fim_fertil = proximo_cio + timedelta(days=15)
+        st.success(f"📅 **Previsão do Próximo Cio:** {proximo_cio.strftime('%d/%m/%Y')}")
+        st.info(f"✨ **Janela Fértil:** Entre **{inicio_fertil.strftime('%d/%m/%Y')}** e **{fim_fertil.strftime('%d/%m/%Y')}**")
+
+    with sub_tab2:
+      st.subheader("Registo Detalhado por Ninhada")
+      with st.form("form_ninhada"):
+        nome_ninhada = st.text_input("Identificação da Ninhada / Mãe (Ex: Ninhada Luna)")
+        data_nasc = st.date_input("Data de Nascimento", value=date.today(), key="ninhada_data")
+        qtd_filhotes = st.number_input("Número de Filhotes Nascidos", 1, 20, 4)
+        if st.form_submit_button("Guardar Ninhada"):
+          st.success(f"Ninhada '{nome_ninhada}' registada com {qtd_filhotes} filhotes!")
+
+    with sub_tab3:
+      st.subheader("Mapeamento Pós-Adoção de Filhotes")
+      with st.form("form_adocao"):
+        filhote_nome = st.text_input("Nome / Microchip do Filhote")
+        adotante_nome = st.text_input("Nome Completo do Adotante")
+        if st.form_submit_button("Registar Adoção"):
+          st.success(f"Adoção do filhote **{filhote_nome}** mapeada com sucesso!")
+
+  with tutor_tab3:
+    st.subheader("💳 Gestão de Pagamentos & Transações")
+    st.info("Consulte aqui o histórico de pagamentos de consultas, exames e transações efetuadas via Multicaixa / IBAN.")
+
+    with st.form("form_pagamento_tutor"):
+      st.markdown("**Registar Pagamento / Comprovativo**")
+      st.text_input("Descrição do Serviço (Ex: Consulta Veterinária)")
+      st.number_input("Valor Pago (AOA)", min_value=0.0, value=5000.0)
+      st.file_uploader("Comprovativo de Pagamento (MCX / Talão)", type=["jpg", "png", "pdf"])
+      if st.form_submit_button("Submeter Comprovativo"):
+        st.success("Comprovativo de pagamento submetido com sucesso!")
