@@ -40,15 +40,15 @@ INFO_VACINAS = {
 
 # Dicionário integrado de informações e intervalos de desparasitações
 INFO_DESPARASITACAO = {
-    "Interna (Comprimido / Xarope)": {
-        "cat": "Desparasitação Interna",
+    "Desparasitação Interna (Comprimido / Xarope)": {
+        "cat": "Interna",
         "produtos_sugeridos": ["Drontal Plus", "Milbemax", "Canex", "Endogard"],
-        "intervalo_dias": 90, # Recomendado a cada 3 meses
+        "intervalo_dias": 90,  # 3 em 3 meses
     },
-    "Externa (Pipeta / Coleira / Spray)": {
-        "cat": "Desparasitação Externa",
+    "Desparasitação Externa (Pipeta / Coleira / Spray)": {
+        "cat": "Externa",
         "produtos_sugeridos": ["NexGard", "Bravecto", "Frontline", "Seresto"],
-        "intervalo_dias": 30, # Recomendado mensal (ou conforme o produto)
+        "intervalo_dias": 30,  # Mensal
     },
 }
 
@@ -329,7 +329,7 @@ def render_tutor_dashboard(supabase):
           tipo_desp_chave = st.selectbox("Tipo de Desparasitação", list(INFO_DESPARASITACAO.keys()), key="input_tipo_d")
           detalhes_desp = INFO_DESPARASITACAO[tipo_desp_chave]
 
-          # Produto comercial com multiselect / ajuste livre
+          # Produto comercial sugerido com opção de ajuste
           produto_escolhido = st.selectbox("Produto Comercial / Marca Sugerida", detalhes_desp["produtos_sugeridos"], key="prod_sug_d")
           
           peso_desp = st.number_input("Peso no Momento (kg)", min_value=0.0, max_value=100.0, value=5.0, key="input_peso_d")
@@ -337,7 +337,7 @@ def render_tutor_dashboard(supabase):
 
           data_aplicacao_d = st.date_input("Data Aplicação", value=date.today(), key="input_data_d")
           
-          # Cálculo automático da próxima dose baseado no intervalo predefinido do dicionário
+          # Cálculo automático da próxima dose com base no intervalo predefinido (ex: 90 ou 30 dias)
           dias_intervalo_d = detalhes_desp["intervalo_dias"]
           proxima_dose_calc_d = data_aplicacao_d + timedelta(days=dias_intervalo_d)
           
@@ -349,7 +349,7 @@ def render_tutor_dashboard(supabase):
                   "animal_id": pet_sel_d_id,
                   "perfil_utilizador": "tutor",
                   "tipo": "desparasitacao",
-                  "nome_produto": f"{tipo_desp_chave} - {produto_escolhido}",
+                  "nome_produto": f"{produto_escolhido} ({detalhes_desp['cat']})",
                   "peso_clinico": peso_desp,
                   "fabricante": idade_desp,
                   "data_aplicacao": str(data_aplicacao_d),
@@ -367,13 +367,13 @@ def render_tutor_dashboard(supabase):
         if res_all_d.data:
           df_all_d = pd.DataFrame(res_all_d.data)
           df_all_d = df_all_d.rename(columns={
-              "nome_produto": "Tipo & Produto",
+              "nome_produto": "Produto & Categoria",
               "peso_clinico": "Peso (kg)",
               "fabricante": "Idade",
               "data_aplicacao": "Aplicação",
               "proxima_dose": "Próxima Dose"
           })
-          st.dataframe(df_all_d[["Tipo & Produto", "Peso (kg)", "Idade", "Aplicação", "Próxima Dose"]], use_container_width=True)
+          st.dataframe(df_all_d[["Produto & Categoria", "Peso (kg)", "Idade", "Aplicação", "Próxima Dose"]], use_container_width=True)
         else:
           st.info("Sem registos de desparasitações.")
       except Exception:
