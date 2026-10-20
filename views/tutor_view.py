@@ -39,7 +39,7 @@ def render_tutor_dashboard(supabase):
   tutor_tab1, tutor_tab2, tutor_tab3 = st.tabs([
       "🐶 Gestão de Saúde & Vacinação",
       "🌸 Controlo Especializado (Fêmeas & Ninhadas)",
-      "💳 Pagamentos & Transações",
+      "🛡️ Histórico de Vacinas e Desparasitação",
   ])
 
   with tutor_tab1:
