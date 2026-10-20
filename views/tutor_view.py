@@ -54,6 +54,8 @@ INFO_DESPARASITACAO = {
         "cat": "Externa", 
         "Produtos_sugeridos": ["NexGard", "Simparica"],
         "dias": 30, # 1 mês
+    },
+    
 }
 
 
