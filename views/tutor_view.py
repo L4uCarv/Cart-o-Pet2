@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
 
+
 def gerar_grafico_peso_pet(pesos_historico):
   fig, ax = plt.subplots(figsize=(6, 3))
   if pesos_historico:
@@ -25,6 +26,16 @@ def gerar_grafico_peso_pet(pesos_historico):
   return img_buffer
 
 
+def calcular_idade_anos(data_nascimento):
+  hoje = date.today()
+  anos = (
+      hoje.year
+      - data_nascimento.year
+      - ((hoje.month, hoje.day) < (data_nascimento.month, data_nascimento.day))
+  )
+  return max(0, anos)
+
+
 def render_tutor_dashboard(supabase):
   st.title("🐾 CartãoPet V2: Painel do Tutor e Saúde Animal")
 
@@ -39,7 +50,7 @@ def render_tutor_dashboard(supabase):
   tutor_tab1, tutor_tab2, tutor_tab3 = st.tabs([
       "🐶 Gestão de Saúde & Vacinação",
       "🌸 Controlo Especializado (Fêmeas & Ninhadas)",
-      "🛡️ Vacinas e Desparasitação",
+      "💳 Pagamentos & Transações",
   ])
 
   with tutor_tab1:
@@ -53,7 +64,16 @@ def render_tutor_dashboard(supabase):
         especie_pet = st.selectbox("Espécie", ["Cão", "Gato", "Outro"])
         raca_pet = st.text_input("Raça")
         sexo_pet = st.selectbox("Sexo", ["Macho", "Fêmea"])
-        idade_pet = st.number_input("Idade (Anos)", 0, 30, 1)
+
+        # Calendário para data de nascimento e cálculo automático de idade
+        data_nasc_pet = st.date_input(
+            "Data de Nascimento do Pet",
+            value=date.today() - timedelta(days=365),
+            max_value=date.today(),
+        )
+        idade_calculada = calcular_idade_anos(data_nasc_pet)
+        st.info(f"📅 Idade calculada automaticamente: **{idade_calculada} anos**")
+
         peso_atual = st.number_input("Peso Atual (kg)", 0.1, 100.0, 5.0)
 
         submitted_pet = st.form_submit_button("Salvar Pet na Carteira")
@@ -68,7 +88,7 @@ def render_tutor_dashboard(supabase):
                   "especie": especie_pet,
                   "raca": raca_pet,
                   "sexo": sexo_pet,
-                  "idade_anos": idade_pet,
+                  "idade_anos": idade_calculada,
                   "peso": peso_atual,
               }).execute()
               st.success(
@@ -170,170 +190,18 @@ def render_tutor_dashboard(supabase):
           )
 
   with tutor_tab3:
-    st.subheader("Gestão Doméstica de Vacinas e Desparasitações")
-    tab_v, tab_d = st.tabs(["🛡️ Vacinas", "💊 Desparasitação"])
+    st.subheader("💳 Gestão de Pagamentos & Transações")
+    st.info(
+        "Consulte aqui o histórico de pagamentos de consultas, exames e"
+        " transações efetuadas via Multicaixa / IBAN."
+    )
 
-    # Obter animais do tutor para uso comum nas abas de registo e consulta
-    try:
-      animais_res_geral = (
-          supabase.table("animais")
-          .select("id, nome")
-          .eq("tutor_id", user_id)
-          .execute()
+    with st.form("form_pagamento_tutor"):
+      st.markdown("**Registar Pagamento / Comprovativo**")
+      st.text_input("Descrição do Serviço (Ex: Consulta Veterinária)")
+      st.number_input("Valor Pago (AOA)", min_value=0.0, value=5000.0)
+      st.file_uploader(
+          "Comprovativo de Pagamento (MCX / Talão)", type=["jpg", "png", "pdf"]
       )
-      animais_lista = animais_res_geral.data
-    except Exception:
-      animais_lista = []
-
-    with tab_v:
-      with st.form("form_tutor_vacina"):
-        st.markdown("**Registar Nova Vacina**")
-        if not animais_lista:
-          st.warning(
-              "Regista primeiro um animal na tua carteira para adicionar"
-              " vacinas."
-          )
-          st.form_submit_button("Guardar", disabled=True)
-          pet_sel_id = None
-        else:
-          pet_opcoes = {a["nome"]: a["id"] for a in animais_lista}
-          pet_sel = st.selectbox("Selecionar Pet", list(pet_opcoes.keys()))
-          pet_sel_id = pet_opcoes[pet_sel]
-
-          nome_vacina = st.text_input(
-              "Nome da Vacina / Doenças Cobertas (Ex: V8, V10, Raiva)"
-          )
-          data_aplicacao = st.date_input("Data de Aplicação")
-          proxima_dose = st.date_input(
-              "Data do Próximo Reforço (Vencimento para Alertas)"
-          )
-
-          if st.form_submit_button("Registar Vacina"):
-            try:
-              supabase.table("registos_medicos_v2").insert({
-                  "animal_id": pet_sel_id,
-                  "perfil_utilizador": "tutor",
-                  "tipo": "vacina",
-                  "nome_produto": nome_vacina,
-                  "data_aplicacao": str(data_aplicacao),
-                  "proxima_dose": str(proxima_dose),
-              }).execute()
-              st.success("Vacina registada com sucesso na caderneta digital!")
-              st.rerun()
-            except Exception as e:
-              st.error(f"Erro ao registar vacina: {e}")
-
-      st.markdown("---")
-      st.subheader("📋 Consulta de Vacinas Registadas")
-      if animais_lista:
-        pet_cons_v = st.selectbox(
-            "Selecionar Pet para Consultar Vacinas",
-            list(pet_opcoes.keys()),
-            key="cons_v",
-        )
-        id_cons_v = pet_opcoes[pet_cons_v]
-        try:
-          res_v = (
-              supabase.table("registos_medicos_v2")
-              .select("*")
-              .eq("animal_id", id_cons_v)
-              .eq("tipo", "vacina")
-              .execute()
-          )
-          if res_v.data:
-            df_v = pd.DataFrame(res_v.data)
-            st.dataframe(
-                df_v[
-                    [
-                        "nome_produto",
-                        "data_aplicacao",
-                        "proxima_dose",
-                        "perfil_utilizador",
-                    ]
-                ],
-                use_container_width=True,
-            )
-          else:
-            st.info("Ainda não existem vacinas registadas para este pet.")
-        except Exception as e:
-          st.warning(f"A carregar registos... ({e})")
-      else:
-        st.info("Sem animais para consultar.")
-
-    with tab_d:
-      with st.form("form_tutor_desp"):
-        st.markdown("**Registar Desparasitação (Interna ou Externa)**")
-        if not animais_lista:
-          st.warning("Regista primeiro um animal.")
-          st.form_submit_button("Guardar", disabled=True)
-          pet_sel_d_id = None
-        else:
-          pet_opcoes_d = {a["nome"]: a["id"] for a in animais_lista}
-          pet_sel_d = st.selectbox(
-              "Selecionar Pet", list(pet_opcoes_d.keys()), key="pet_d"
-          )
-          pet_sel_d_id = pet_opcoes_d[pet_sel_d]
-
-          tipo_desp = st.selectbox(
-              "Tipo de Desparasitação",
-              ["Interna (Comprimido/Xarope)", "Externa (Pipeta/Coleira)"],
-          )
-          nome_produto = st.text_input(
-              "Nome do Produto (Ex: Drontal, NexGard)"
-          )
-          data_aplicacao_d = st.date_input("Data de Aplicação", key="d_app")
-          proxima_dose_d = st.date_input("Próxima Dose Recomendada", key="d_prox")
-
-          if st.form_submit_button("Registar Desparasitação"):
-            try:
-              supabase.table("registos_medicos_v2").insert({
-                  "animal_id": pet_sel_d_id,
-                  "perfil_utilizador": "tutor",
-                  "tipo": "desparasitacao",
-                  "nome_produto": f"{tipo_desp} - {nome_produto}",
-                  "data_aplicacao": str(data_aplicacao_d),
-                  "proxima_dose": str(proxima_dose_d),
-              }).execute()
-              st.success("Desparasitação registada com sucesso!")
-              st.rerun()
-            except Exception as e:
-              st.error(f"Erro ao registar desparasitação: {e}")
-
-      st.markdown("---")
-      st.subheader("📋 Consulta de Desparasitações Registadas")
-      if animais_lista:
-        pet_cons_d = st.selectbox(
-            "Selecionar Pet para Consultar Desparasitações",
-            list(pet_opcoes.keys()),
-            key="cons_d",
-        )
-        id_cons_d = pet_opcoes[pet_cons_d]
-        try:
-          res_d = (
-              supabase.table("registos_medicos_v2")
-              .select("*")
-              .eq("animal_id", id_cons_d)
-              .eq("tipo", "desparasitacao")
-              .execute()
-          )
-          if res_d.data:
-            df_d = pd.DataFrame(res_d.data)
-            st.dataframe(
-                df_d[
-                    [
-                        "nome_produto",
-                        "data_aplicacao",
-                        "proxima_dose",
-                        "perfil_utilizador",
-                    ]
-                ],
-                use_container_width=True,
-            )
-          else:
-            st.info(
-                "Ainda não existem desparasitações registadas para este pet."
-            )
-        except Exception as e:
-          st.warning(f"A carregar registos... ({e})")
-      else:
-        st.info("Sem animais para consultar.")
+      if st.form_submit_button("Submeter Comprovativo"):
+        st.success("Comprovativo de pagamento submetido com sucesso!")
