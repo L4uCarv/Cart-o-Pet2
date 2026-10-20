@@ -174,7 +174,7 @@ def render_tutor_dashboard(supabase):
       buf_peso = gerar_grafico_peso_pet(historico_ex)
       st.image(buf_peso)
 
-    # --- SEÇÃO DE GESTÃO DE VACINAS E DESPARASITAÇÕES SEM ABAS ---
+    # --- DUAS COLUNAS LADO A LADO PARA VACINAS E DESPARASITAÇÕES ---
     st.markdown("---")
     st.header("💉 Gestão de Vacinas & Desparasitações")
 
@@ -189,23 +189,25 @@ def render_tutor_dashboard(supabase):
     except Exception:
       animais_lista = []
 
-    col_ Bloco1, col_Bloco2 = st.columns(2)
+    col_vacina, col_desp = st.columns(2)
 
-    with col_Bloco1:
+    # 1. COLUNA DE VACINAS
+    with col_vacina:
       st.subheader("🛡️ Registar & Consultar Vacinas")
-      with st.form("form_tutor_vacina_direto"):
+      
+      with st.form("form_tutor_vacina_coluna"):
         if not animais_lista:
           st.warning("Regista primeiro um animal.")
           st.form_submit_button("Guardar Vacina", disabled=True)
           pet_sel_id = None
         else:
           pet_opcoes = {a["nome"]: a["id"] for a in animais_lista}
-          pet_sel = st.selectbox("Selecionar Pet", list(pet_opcoes.keys()), key="sel_pet_v")
+          pet_sel = st.selectbox("Selecionar Pet (Vacina)", list(pet_opcoes.keys()), key="sel_pet_v")
           pet_sel_id = pet_opcoes[pet_sel]
 
-          nome_vacina = st.text_input("Nome da Vacina (Ex: V8, V10, Raiva)")
-          data_aplicacao = st.date_input("Data de Aplicação", key="d_app_v")
-          proxima_dose = st.date_input("Próximo Reforço", key="d_prox_v")
+          nome_vacina = st.text_input("Nome da Vacina (Ex: V8, Raiva)", key="input_nome_v")
+          data_aplicacao = st.date_input("Data Aplicação", key="input_data_v")
+          proxima_dose = st.date_input("Próximo Reforço", key="input_prox_v")
 
           if st.form_submit_button("Registar Vacina"):
             try:
@@ -222,8 +224,8 @@ def render_tutor_dashboard(supabase):
             except Exception as e:
               st.error(f"Erro: {e}")
 
-      # Tabela de Histórico de Vacinas
-      st.markdown("##### Histórico de Vacinas")
+      st.markdown("---")
+      st.markdown("**📋 Histórico de Vacinas**")
       try:
         res_all_v = supabase.table("registos_medicos_v2").select("nome_produto, data_aplicacao, proxima_dose").eq("tipo", "vacina").execute()
         if res_all_v.data:
@@ -234,22 +236,24 @@ def render_tutor_dashboard(supabase):
       except Exception:
         st.info("A carregar...")
 
-    with col_Bloco2:
-      st.subheader("💊 Registar & Consultar Desparasitação")
-      with st.form("form_tutor_desp_direto"):
+    # 2. COLUNA DE DESPARASITAÇÕES
+    with col_desp:
+      st.subheader("💊 Registar & Consultar Desparasitações")
+      
+      with st.form("form_tutor_desp_coluna"):
         if not animais_lista:
           st.warning("Regista primeiro um animal.")
           st.form_submit_button("Guardar Desparasitação", disabled=True)
           pet_sel_d_id = None
         else:
           pet_opcoes_d = {a["nome"]: a["id"] for a in animais_lista}
-          pet_sel_d = st.selectbox("Selecionar Pet", list(pet_opcoes_d.keys()), key="sel_pet_d")
+          pet_sel_d = st.selectbox("Selecionar Pet (Desp.)", list(pet_opcoes_d.keys()), key="sel_pet_d")
           pet_sel_d_id = pet_opcoes_d[pet_sel_d]
 
-          tipo_desp = st.selectbox("Tipo", ["Interna (Comprimido)", "Externa (Pipeta)"])
-          nome_produto = st.text_input("Nome do Produto (Ex: Drontal)", key="prod_d")
-          data_aplicacao_d = st.date_input("Data de Aplicação", key="d_app_d")
-          proxima_dose_d = st.date_input("Próxima Dose", key="d_prox_d")
+          tipo_desp = st.selectbox("Tipo", ["Interna (Comprimido)", "Externa (Pipeta)"], key="input_tipo_d")
+          nome_produto_d = st.text_input("Nome do Produto (Ex: Drontal)", key="input_nome_d")
+          data_aplicacao_d = st.date_input("Data Aplicação", key="input_data_d")
+          proxima_dose_d = st.date_input("Próxima Dose", key="input_prox_d")
 
           if st.form_submit_button("Registar Desparasitação"):
             try:
@@ -257,7 +261,7 @@ def render_tutor_dashboard(supabase):
                   "animal_id": pet_sel_d_id,
                   "perfil_utilizador": "tutor",
                   "tipo": "desparasitacao",
-                  "nome_produto": f"{tipo_desp} - {nome_produto}",
+                  "nome_produto": f"{tipo_desp} - {nome_produto_d}",
                   "data_aplicacao": str(data_aplicacao_d),
                   "proxima_dose": str(proxima_dose_d),
               }).execute()
@@ -266,15 +270,15 @@ def render_tutor_dashboard(supabase):
             except Exception as e:
               st.error(f"Erro: {e}")
 
-      # Tabela de Histórico de Desparasitação
-      st.markdown("##### Histórico de Desparasitações")
+      st.markdown("---")
+      st.markdown("**📋 Histórico de Desparasitações**")
       try:
         res_all_d = supabase.table("registos_medicos_v2").select("nome_produto, data_aplicacao, proxima_dose").eq("tipo", "desparasitacao").execute()
         if res_all_d.data:
           df_all_d = pd.DataFrame(res_all_d.data)
           st.dataframe(df_all_d[["nome_produto", "data_aplicacao", "proxima_dose"]], use_container_width=True)
         else:
-          st.info("Sem registos de desparasitação.")
+          st.info("Sem registos de desparasitações.")
       except Exception:
         st.info("A carregar...")
 
