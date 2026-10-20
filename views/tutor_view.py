@@ -40,7 +40,7 @@ INFO_VACINAS = {
 
 # Dicionário corrigido com categorias, sugestões rápidas e os dias corretos de efeito
 INFO_DESPARASITACAO = {
-    "Desparasitação Interna (Comprimido / Xarope)": {
+    "Desparasitação Interna (Xarope)": {
         "cat": "Interna",
         "produtos_sugeridos": ["Drontal Plus", "Milbemax", "Canex", "Endogard", "Vetmax Plus"],
         "dias": 90,  # 3 meses
