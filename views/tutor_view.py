@@ -82,7 +82,7 @@ def render_tutor_dashboard(supabase):
       especie_pet = st.selectbox("Espécie", ["Cão", "Gato", "Outro"], key="reg_esp_pet")
       raca_pet = st.text_input("Raça", key="reg_raca_pet")
 
-      # Colocar Data de Nascimento (Idade) e Sexo lado a lado
+      # Colocar Data de Nascimento e Sexo rigorosamente lado a lado
       col_idade, col_sexo = st.columns(2)
       with col_idade:
         data_nasc_pet = st.date_input(
