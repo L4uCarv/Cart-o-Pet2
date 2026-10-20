@@ -38,6 +38,20 @@ INFO_VACINAS = {
     },
 }
 
+# Dicionário integrado de informações e intervalos de desparasitações
+INFO_DESPARASITACAO = {
+    "Interna (Comprimido / Xarope)": {
+        "cat": "Desparasitação Interna",
+        "produtos_sugeridos": ["Drontal Plus", "Milbemax", "Canex", "Endogard"],
+        "intervalo_dias": 90, # Recomendado a cada 3 meses
+    },
+    "Externa (Pipeta / Coleira / Spray)": {
+        "cat": "Desparasitação Externa",
+        "produtos_sugeridos": ["NexGard", "Bravecto", "Frontline", "Seresto"],
+        "intervalo_dias": 30, # Recomendado mensal (ou conforme o produto)
+    },
+}
+
 
 def gerar_grafico_peso_pet(pesos_historico):
   fig, ax = plt.subplots(figsize=(6, 3))
@@ -225,7 +239,7 @@ def render_tutor_dashboard(supabase):
 
     col_vacina, col_desp = st.columns(2)
 
-    # 1. COLUNA DE VACINAS COM SELEÇÃO CUSTOMIZÁVEL DE DOENÇAS
+    # 1. COLUNA DE VACINAS INTELIGENTE
     with col_vacina:
       st.subheader("🛡️ Consulta de Vacinas")
       
@@ -240,10 +254,8 @@ def render_tutor_dashboard(supabase):
 
           nome_vacina = st.selectbox("Tipo de Vacina", list(INFO_VACINAS.keys()), key="input_nome_v")
           
-          # Obter as doenças predefinidas para a vacina escolhida
           detalhes_vacina = INFO_VACINAS[nome_vacina]
           
-          # Permitir ao utilizador selecionar ou remover doenças cobertas
           doencas_selecionadas = st.multiselect(
               "Doenças Cobertas (Pode ajustar/adicionar)",
               options=["Cinomose", "Parvovirose", "Coronavirose", "Hepatite Infecciosa", "Adenovirose Tipo 2", "Parainfluenza", "Leptospirose", "Raiva Canina", "Bordetella bronchiseptica", "Giardia duodenalis"],
@@ -265,7 +277,6 @@ def render_tutor_dashboard(supabase):
 
           if st.button("Salvar Vacina", type="primary", key="btn_salvar_v"):
             try:
-              # Guardar a vacina juntamente com as doenças selecionadas (convertidas em string separada por vírgulas)
               doencas_str = ", ".join(doencas_selecionadas)
               supabase.table("registos_medicos_v2").insert({
                   "animal_id": pet_sel_id,
@@ -301,12 +312,12 @@ def render_tutor_dashboard(supabase):
       except Exception:
         st.info("A carregar...")
 
-    # 2. COLUNA DE DESPARASITAÇÕES
+    # 2. COLUNA DE DESPARASITAÇÕES INTELIGENTE
     with col_desp:
       st.subheader("💊 Consulta de Desparasitações")
       
       with st.popover("➕ Registar Nova Desparasitação"):
-        st.markdown("**Registar Desparasitação**")
+        st.markdown("**Registar Desparasitação Inteligente**")
         if not animais_lista:
           st.warning("Regista primeiro um animal.")
         else:
@@ -314,10 +325,23 @@ def render_tutor_dashboard(supabase):
           pet_sel_d = st.selectbox("Selecionar Pet", list(pet_opcoes_d.keys()), key="sel_pet_d")
           pet_sel_d_id = pet_opcoes_d[pet_sel_d]
 
-          tipo_desp = st.selectbox("Tipo", ["Interna (Comprimido)", "Externa (Pipeta)"], key="input_tipo_d")
-          nome_produto_d = st.text_input("Nome do Produto (Ex: Drontal)", key="input_nome_d")
-          data_aplicacao_d = st.date_input("Data Aplicação", key="input_data_d")
-          proxima_dose_d = st.date_input("Próxima Dose", key="input_prox_d")
+          # Seleção inteligente baseada no dicionário INFO_DESPARASITACAO
+          tipo_desp_chave = st.selectbox("Tipo de Desparasitação", list(INFO_DESPARASITACAO.keys()), key="input_tipo_d")
+          detalhes_desp = INFO_DESPARASITACAO[tipo_desp_chave]
+
+          # Produto comercial com multiselect / ajuste livre
+          produto_escolhido = st.selectbox("Produto Comercial / Marca Sugerida", detalhes_desp["produtos_sugeridos"], key="prod_sug_d")
+          
+          peso_desp = st.number_input("Peso no Momento (kg)", min_value=0.0, max_value=100.0, value=5.0, key="input_peso_d")
+          idade_desp = st.text_input("Idade no Momento (Ex: 6 meses)", key="input_idade_d")
+
+          data_aplicacao_d = st.date_input("Data Aplicação", value=date.today(), key="input_data_d")
+          
+          # Cálculo automático da próxima dose baseado no intervalo predefinido do dicionário
+          dias_intervalo_d = detalhes_desp["intervalo_dias"]
+          proxima_dose_calc_d = data_aplicacao_d + timedelta(days=dias_intervalo_d)
+          
+          st.success(f"📅 **Próxima Dose Calculada ({dias_intervalo_d} dias):** {proxima_dose_calc_d.strftime('%d/%m/%Y')}")
 
           if st.button("Salvar Desparasitação", type="primary", key="btn_salvar_d"):
             try:
@@ -325,9 +349,11 @@ def render_tutor_dashboard(supabase):
                   "animal_id": pet_sel_d_id,
                   "perfil_utilizador": "tutor",
                   "tipo": "desparasitacao",
-                  "nome_produto": f"{tipo_desp} - {nome_produto_d}",
+                  "nome_produto": f"{tipo_desp_chave} - {produto_escolhido}",
+                  "peso_clinico": peso_desp,
+                  "fabricante": idade_desp,
                   "data_aplicacao": str(data_aplicacao_d),
-                  "proxima_dose": str(proxima_dose_d),
+                  "proxima_dose": str(proxima_dose_calc_d),
               }).execute()
               st.success("Desparasitação registada com sucesso!")
               st.rerun()
@@ -337,10 +363,17 @@ def render_tutor_dashboard(supabase):
       st.markdown("---")
       st.markdown("**📋 Histórico de Desparasitações**")
       try:
-        res_all_d = supabase.table("registos_medicos_v2").select("nome_produto, data_aplicacao, proxima_dose").eq("tipo", "desparasitacao").execute()
+        res_all_d = supabase.table("registos_medicos_v2").select("nome_produto, peso_clinico, fabricante, data_aplicacao, proxima_dose").eq("tipo", "desparasitacao").execute()
         if res_all_d.data:
           df_all_d = pd.DataFrame(res_all_d.data)
-          st.dataframe(df_all_d[["nome_produto", "data_aplicacao", "proxima_dose"]], use_container_width=True)
+          df_all_d = df_all_d.rename(columns={
+              "nome_produto": "Tipo & Produto",
+              "peso_clinico": "Peso (kg)",
+              "fabricante": "Idade",
+              "data_aplicacao": "Aplicação",
+              "proxima_dose": "Próxima Dose"
+          })
+          st.dataframe(df_all_d[["Tipo & Produto", "Peso (kg)", "Idade", "Aplicação", "Próxima Dose"]], use_container_width=True)
         else:
           st.info("Sem registos de desparasitações.")
       except Exception:
