@@ -191,27 +191,27 @@ def render_tutor_dashboard(supabase):
 
     col_vacina, col_desp = st.columns(2)
 
-    # 1. COLUNA DE VACINAS COM CAMPOS DE PESO E IDADE
+    # 1. COLUNA DE VACINAS COM BOTÃO POPOVER (JANELA FLUTUANTE)
     with col_vacina:
-      st.subheader("🛡️ Registar & Consultar Vacinas")
+      st.subheader("🛡️ Consulta de Vacinas")
       
-      with st.form("form_tutor_vacina_coluna"):
+      # Botão flutuante (popover) que abre a janela para preencher a vacina
+      with st.popover("➕ Registar Nova Vacina"):
+        st.markdown("**Registar Vacina**")
         if not animais_lista:
           st.warning("Regista primeiro um animal.")
-          st.form_submit_button("Guardar Vacina", disabled=True)
-          pet_sel_id = None
         else:
           pet_opcoes = {a["nome"]: a["id"] for a in animais_lista}
-          pet_sel = st.selectbox("Selecionar Pet (Vacina)", list(pet_opcoes.keys()), key="sel_pet_v")
+          pet_sel = st.selectbox("Selecionar Pet", list(pet_opcoes.keys()), key="sel_pet_v")
           pet_sel_id = pet_opcoes[pet_sel]
 
           nome_vacina = st.text_input("Nome da Vacina (Ex: V8, Raiva)", key="input_nome_v")
           peso_vacina = st.number_input("Peso no Momento (kg)", min_value=0.0, max_value=100.0, value=5.0, key="input_peso_v")
-          idade_vacina = st.text_input("Idade no Momento (Ex: 6 meses, 1 ano)", key="input_idade_v")
+          idade_vacina = st.text_input("Idade no Momento (Ex: 6 meses)", key="input_idade_v")
           data_aplicacao = st.date_input("Data Aplicação", key="input_data_v")
           proxima_dose = st.date_input("Próximo Reforço", key="input_prox_v")
 
-          if st.form_submit_button("Registar Vacina"):
+          if st.button("Salvar Vacina", type="primary", key="btn_salvar_v"):
             try:
               supabase.table("registos_medicos_v2").insert({
                   "animal_id": pet_sel_id,
@@ -219,7 +219,7 @@ def render_tutor_dashboard(supabase):
                   "tipo": "vacina",
                   "nome_produto": nome_vacina,
                   "peso_clinico": peso_vacina,
-                  "fabricante": idade_vacina,  # Utiliza o campo auxiliar existente para guardar a idade registada
+                  "fabricante": idade_vacina,
                   "data_aplicacao": str(data_aplicacao),
                   "proxima_dose": str(proxima_dose),
               }).execute()
@@ -234,7 +234,6 @@ def render_tutor_dashboard(supabase):
         res_all_v = supabase.table("registos_medicos_v2").select("nome_produto, peso_clinico, fabricante, data_aplicacao, proxima_dose").eq("tipo", "vacina").execute()
         if res_all_v.data:
           df_all_v = pd.DataFrame(res_all_v.data)
-          # Renomear colunas para exibição amigável
           df_all_v = df_all_v.rename(columns={
               "nome_produto": "Vacina",
               "peso_clinico": "Peso (kg)",
@@ -248,18 +247,17 @@ def render_tutor_dashboard(supabase):
       except Exception:
         st.info("A carregar...")
 
-    # 2. COLUNA DE DESPARASITAÇÕES
+    # 2. COLUNA DE DESPARASITAÇÕES COM BOTÃO POPOVER
     with col_desp:
-      st.subheader("💊 Registar & Consultar Desparasitações")
+      st.subheader("💊 Consulta de Desparasitações")
       
-      with st.form("form_tutor_desp_coluna"):
+      with st.popover("➕ Registar Nova Desparasitação"):
+        st.markdown("**Registar Desparasitação**")
         if not animais_lista:
           st.warning("Regista primeiro um animal.")
-          st.form_submit_button("Guardar Desparasitação", disabled=True)
-          pet_sel_d_id = None
         else:
           pet_opcoes_d = {a["nome"]: a["id"] for a in animais_lista}
-          pet_sel_d = st.selectbox("Selecionar Pet (Desp.)", list(pet_opcoes_d.keys()), key="sel_pet_d")
+          pet_sel_d = st.selectbox("Selecionar Pet", list(pet_opcoes_d.keys()), key="sel_pet_d")
           pet_sel_d_id = pet_opcoes_d[pet_sel_d]
 
           tipo_desp = st.selectbox("Tipo", ["Interna (Comprimido)", "Externa (Pipeta)"], key="input_tipo_d")
@@ -267,7 +265,7 @@ def render_tutor_dashboard(supabase):
           data_aplicacao_d = st.date_input("Data Aplicação", key="input_data_d")
           proxima_dose_d = st.date_input("Próxima Dose", key="input_prox_d")
 
-          if st.form_submit_button("Registar Desparasitação"):
+          if st.button("Salvar Desparasitação", type="primary", key="btn_salvar_d"):
             try:
               supabase.table("registos_medicos_v2").insert({
                   "animal_id": pet_sel_d_id,
