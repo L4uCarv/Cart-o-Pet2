@@ -42,12 +42,12 @@ INFO_VACINAS = {
 INFO_DESPARASITACAO = {
     "Desparasitação Interna (Comprimido / Xarope)": {
         "cat": "Interna",
-        "produtos_sugeridos": ["Drontal Plus", "Milbemax", "Canex", "Endogard"],
+        "produtos_sugeridos": ["Drontal Plus", "Milbemax", "Canex", "Endogard", "Vetmax Plus"],
         "intervalo_dias": 90,  # 3 em 3 meses
     },
     "Desparasitação Externa (Pipeta / Coleira / Spray)": {
         "cat": "Externa",
-        "produtos_sugeridos": ["NexGard", "Bravecto", "Frontline", "Seresto"],
+        "produtos_sugeridos": ["NexGard", "Bravecto", "Simparica", "Frontline", "Seresto"],
         "intervalo_dias": 30,  # Mensal
     },
 }
@@ -312,7 +312,7 @@ def render_tutor_dashboard(supabase):
       except Exception:
         st.info("A carregar...")
 
-    # 2. COLUNA DE DESPARASITAÇÕES INTELIGENTE
+    # 2. COLUNA DE DESPARASITAÇÕES COM SUPORTE A TEXTO LIVRE / PERSONALIZADO
     with col_desp:
       st.subheader("💊 Consulta de Desparasitações")
       
@@ -325,40 +325,48 @@ def render_tutor_dashboard(supabase):
           pet_sel_d = st.selectbox("Selecionar Pet", list(pet_opcoes_d.keys()), key="sel_pet_d")
           pet_sel_d_id = pet_opcoes_d[pet_sel_d]
 
-          # Seleção inteligente baseada no dicionário INFO_DESPARASITACAO
           tipo_desp_chave = st.selectbox("Tipo de Desparasitação", list(INFO_DESPARASITACAO.keys()), key="input_tipo_d")
           detalhes_desp = INFO_DESPARASITACAO[tipo_desp_chave]
 
-          # Produto comercial sugerido com opção de ajuste
-          produto_escolhido = st.selectbox("Produto Comercial / Marca Sugerida", detalhes_desp["produtos_sugeridos"], key="prod_sug_d")
+          # Adicionar opção "Outro (Escrever manual)" à lista de produtos sugeridos
+          opcoes_produtos = detalhes_desp["produtos_sugeridos"] + ["Outro (Personalizado)"]
+          produto_selecionado = st.selectbox("Produto Comercial / Marca", opcoes_produtos, key="prod_sug_d")
+
+          # Se o utilizador escolher "Outro", abre um campo de texto livre
+          if produto_selecionado == "Outro (Personalizado)":
+            produto_escolhido = st.text_input("Escreva o Nome do Produto (Ex: Vetmax Plus, Simparica)", key="input_outro_prod_d")
+          else:
+            produto_escolhido = produto_selecionado
           
           peso_desp = st.number_input("Peso no Momento (kg)", min_value=0.0, max_value=100.0, value=5.0, key="input_peso_d")
           idade_desp = st.text_input("Idade no Momento (Ex: 6 meses)", key="input_idade_d")
 
           data_aplicacao_d = st.date_input("Data Aplicação", value=date.today(), key="input_data_d")
           
-          # Cálculo automático da próxima dose com base no intervalo predefinido (ex: 90 ou 30 dias)
           dias_intervalo_d = detalhes_desp["intervalo_dias"]
           proxima_dose_calc_d = data_aplicacao_d + timedelta(days=dias_intervalo_d)
           
           st.success(f"📅 **Próxima Dose Calculada ({dias_intervalo_d} dias):** {proxima_dose_calc_d.strftime('%d/%m/%Y')}")
 
           if st.button("Salvar Desparasitação", type="primary", key="btn_salvar_d"):
-            try:
-              supabase.table("registos_medicos_v2").insert({
-                  "animal_id": pet_sel_d_id,
-                  "perfil_utilizador": "tutor",
-                  "tipo": "desparasitacao",
-                  "nome_produto": f"{produto_escolhido} ({detalhes_desp['cat']})",
-                  "peso_clinico": peso_desp,
-                  "fabricante": idade_desp,
-                  "data_aplicacao": str(data_aplicacao_d),
-                  "proxima_dose": str(proxima_dose_calc_d),
-              }).execute()
-              st.success("Desparasitação registada com sucesso!")
-              st.rerun()
-            except Exception as e:
-              st.error(f"Erro: {e}")
+            if not produto_escolhido:
+              st.warning("Por favor, insira o nome do produto.")
+            else:
+              try:
+                supabase.table("registos_medicos_v2").insert({
+                    "animal_id": pet_sel_d_id,
+                    "perfil_utilizador": "tutor",
+                    "tipo": "desparasitacao",
+                    "nome_produto": f"{produto_escolhido} ({detalhes_desp['cat']})",
+                    "peso_clinico": peso_desp,
+                    "fabricante": idade_desp,
+                    "data_aplicacao": str(data_aplicacao_d),
+                    "proxima_dose": str(proxima_dose_calc_d),
+                }).execute()
+                st.success("Desparasitação registada com sucesso!")
+                st.rerun()
+              except Exception as e:
+                st.error(f"Erro: {e}")
 
       st.markdown("---")
       st.markdown("**📋 Histórico de Desparasitações**")
