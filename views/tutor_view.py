@@ -40,16 +40,20 @@ INFO_VACINAS = {
 
 # Dicionário com categorias, sugestões rápidas e os dias corretos de efeito
 INFO_DESPARASITACAO = {
-    "Desparasitação Interna (Comprimido / Xarope)": {
+    "Desparasitação Interna ( Xarope)": {
         "cat": "Interna",
         "produtos_sugeridos": ["Drontal Plus", "Milbemax", "Canex", "Endogard", "Vetmax Plus"],
         "dias": 90,  # 3 meses
     },
     "Desparasitação Externa (Pipeta / Coleira / Spray)": {
         "cat": "Externa",
-        "produtos_sugeridos": ["NexGard", "Bravecto", "Simparica", "Frontline", "Seresto"],
-        "dias": 30,  # 1 mês (como o NexGard)
+        "produtos_sugeridos": [ "Bravecto", "Simparica", "Frontline", "Seresto"],
+        "dias": 30,  # 1 mês 
     },
+    "Antipulgas (Comprimidos)": {
+        "cat": "Externa", 
+        "Produtos_sugeridos": ["NexGard", "Simparica"],
+        "dias": 30, # 1 mês
 }
 
 
