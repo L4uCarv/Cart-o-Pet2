@@ -81,17 +81,21 @@ def render_tutor_dashboard(supabase):
       nome_pet = st.text_input("Nome do Animal", key="reg_nome_pet")
       especie_pet = st.selectbox("Espécie", ["Cão", "Gato", "Outro"], key="reg_esp_pet")
       raca_pet = st.text_input("Raça", key="reg_raca_pet")
-      sexo_pet = st.selectbox("Sexo", ["Macho", "Fêmea"], key="reg_sexo_pet")
 
-      data_nasc_pet = st.date_input(
-          "Data de Nascimento do Pet",
-          value=date.today(),
-          max_value=date.today(),
-          key="reg_data_nasc"
-      )
+      # Colocar Data de Nascimento (Idade) e Sexo lado a lado
+      col_idade, col_sexo = st.columns(2)
+      with col_idade:
+        data_nasc_pet = st.date_input(
+            "Data de Nascimento",
+            value=date.today(),
+            max_value=date.today(),
+            key="reg_data_nasc"
+        )
+      with col_sexo:
+        sexo_pet = st.selectbox("Sexo", ["Macho", "Fêmea"], key="reg_sexo_pet")
       
       descricao_idade, idade_decimal = calcular_idade_pet(data_nasc_pet)
-      st.info(f"📅 Idade calculada automaticamente: **{descricao_idade}**")
+      st.info(f"📅 Idade calculada: **{descricao_idade}**")
 
       peso_atual = st.number_input("Peso Atual (kg)", min_value=0.0, max_value=100.0, value=0.0, key="reg_peso_pet")
 
@@ -219,7 +223,7 @@ def render_tutor_dashboard(supabase):
                   "tipo": "vacina",
                   "nome_produto": nome_vacina,
                   "peso_clinico": peso_vacina,
-                  "fabricante": idade_vacina,  # Utiliza o campo auxiliar existente para guardar a idade registada
+                  "fabricante": idade_vacina,
                   "data_aplicacao": str(data_aplicacao),
                   "proxima_dose": str(proxima_dose),
               }).execute()
@@ -234,7 +238,6 @@ def render_tutor_dashboard(supabase):
         res_all_v = supabase.table("registos_medicos_v2").select("nome_produto, peso_clinico, fabricante, data_aplicacao, proxima_dose").eq("tipo", "vacina").execute()
         if res_all_v.data:
           df_all_v = pd.DataFrame(res_all_v.data)
-          # Renomear colunas para exibição amigável
           df_all_v = df_all_v.rename(columns={
               "nome_produto": "Vacina",
               "peso_clinico": "Peso (kg)",
