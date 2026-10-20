@@ -38,18 +38,9 @@ INFO_VACINAS = {
     },
 }
 
-# Dicionário integrado de informações e intervalos de desparasitações
 INFO_DESPARASITACAO = {
-    "Desparasitação Interna (Comprimido / Xarope)": {
-        "cat": "Interna",
-        "produtos_sugeridos": ["Drontal Plus", "Milbemax", "Canex", "Endogard", "Vetmax Plus"],
-        "intervalo_dias": 90,  # 3 em 3 meses
-    },
-    "Desparasitação Externa (Pipeta / Coleira / Spray)": {
-        "cat": "Externa",
-        "produtos_sugeridos": ["NexGard", "Bravecto", "Simparica", "Frontline", "Seresto"],
-        "intervalo_dias": 30,  # Mensal
-    },
+    "Desparasitação Interna (Comprimido / Xarope)": 90,  # 3 em 3 meses
+    "Desparasitação Externa (Pipeta / Coleira / Spray)": 30,  # Mensal
 }
 
 
@@ -312,12 +303,12 @@ def render_tutor_dashboard(supabase):
       except Exception:
         st.info("A carregar...")
 
-    # 2. COLUNA DE DESPARASITAÇÕES COM SUPORTE A TEXTO LIVRE / PERSONALIZADO
+    # 2. COLUNA DE DESPARASITAÇÕES COM TEXTO 100% LIVRE (EX: VETMAX PLUS, SIMPARICA)
     with col_desp:
       st.subheader("💊 Consulta de Desparasitações")
       
       with st.popover("➕ Registar Nova Desparasitação"):
-        st.markdown("**Registar Desparasitação Inteligente**")
+        st.markdown("**Registar Desparasitação (Livre)**")
         if not animais_lista:
           st.warning("Regista primeiro um animal.")
         else:
@@ -325,39 +316,31 @@ def render_tutor_dashboard(supabase):
           pet_sel_d = st.selectbox("Selecionar Pet", list(pet_opcoes_d.keys()), key="sel_pet_d")
           pet_sel_d_id = pet_opcoes_d[pet_sel_d]
 
-          tipo_desp_chave = st.selectbox("Tipo de Desparasitação", list(INFO_DESPARASITACAO.keys()), key="input_tipo_d")
-          detalhes_desp = INFO_DESPARASITACAO[tipo_desp_chave]
+          tipo_desp_chave = st.selectbox("Categoria", list(INFO_DESPARASITACAO.keys()), key="input_tipo_d")
+          dias_intervalo_d = INFO_DESPARASITACAO[tipo_desp_chave]
 
-          # Adicionar opção "Outro (Escrever manual)" à lista de produtos sugeridos
-          opcoes_produtos = detalhes_desp["produtos_sugeridos"] + ["Outro (Personalizado)"]
-          produto_selecionado = st.selectbox("Produto Comercial / Marca", opcoes_produtos, key="prod_sug_d")
-
-          # Se o utilizador escolher "Outro", abre um campo de texto livre
-          if produto_selecionado == "Outro (Personalizado)":
-            produto_escolhido = st.text_input("Escreva o Nome do Produto (Ex: Vetmax Plus, Simparica)", key="input_outro_prod_d")
-          else:
-            produto_escolhido = produto_selecionado
+          # Campo de texto totalmente livre para escrever qualquer comprimido ou xarope (Ex: Vetmax Plus, Simparica, Drontal)
+          nome_produto_livre = st.text_input("Nome do Produto / Xarope / Comprimido", placeholder="Ex: Vetmax Plus, Simparica, Drontal...", key="input_livre_prod_d")
           
           peso_desp = st.number_input("Peso no Momento (kg)", min_value=0.0, max_value=100.0, value=5.0, key="input_peso_d")
           idade_desp = st.text_input("Idade no Momento (Ex: 6 meses)", key="input_idade_d")
 
           data_aplicacao_d = st.date_input("Data Aplicação", value=date.today(), key="input_data_d")
           
-          dias_intervalo_d = detalhes_desp["intervalo_dias"]
           proxima_dose_calc_d = data_aplicacao_d + timedelta(days=dias_intervalo_d)
-          
           st.success(f"📅 **Próxima Dose Calculada ({dias_intervalo_d} dias):** {proxima_dose_calc_d.strftime('%d/%m/%Y')}")
 
           if st.button("Salvar Desparasitação", type="primary", key="btn_salvar_d"):
-            if not produto_escolhido:
+            if not nome_produto_livre:
               st.warning("Por favor, insira o nome do produto.")
             else:
               try:
+                cat_curta = "Interna" if "Interna" in tipo_desp_chave else "Externa"
                 supabase.table("registos_medicos_v2").insert({
                     "animal_id": pet_sel_d_id,
                     "perfil_utilizador": "tutor",
                     "tipo": "desparasitacao",
-                    "nome_produto": f"{produto_escolhido} ({detalhes_desp['cat']})",
+                    "nome_produto": f"{nome_produto_livre} ({cat_curta})",
                     "peso_clinico": peso_desp,
                     "fabricante": idade_desp,
                     "data_aplicacao": str(data_aplicacao_d),
