@@ -174,7 +174,7 @@ def render_tutor_dashboard(supabase):
       buf_peso = gerar_grafico_peso_pet(historico_ex)
       st.image(buf_peso)
 
-    # --- SEÇÃO UNIFICADA DE VACINAS E DESPARASITAÇÕES COM DUAS TABELAS LADO A LADO ---
+    # --- SEÇÃO DE GESTÃO DE VACINAS E DESPARASITAÇÕES SEM ABAS ---
     st.markdown("---")
     st.header("💉 Gestão de Vacinas & Desparasitações")
 
@@ -189,23 +189,23 @@ def render_tutor_dashboard(supabase):
     except Exception:
       animais_lista = []
 
-    sub_v, sub_d = st.tabs(["🛡️ Registar Vacinas", "💊 Registar Desparasitações"])
+    col_ Bloco1, col_Bloco2 = st.columns(2)
 
-    with sub_v:
-      with st.form("form_tutor_vacina_aba1"):
-        st.markdown("**Registar Nova Vacina**")
+    with col_Bloco1:
+      st.subheader("🛡️ Registar & Consultar Vacinas")
+      with st.form("form_tutor_vacina_direto"):
         if not animais_lista:
-          st.warning("Regista primeiro um animal na tua carteira para adicionar vacinas.")
-          st.form_submit_button("Guardar", disabled=True)
+          st.warning("Regista primeiro um animal.")
+          st.form_submit_button("Guardar Vacina", disabled=True)
           pet_sel_id = None
         else:
           pet_opcoes = {a["nome"]: a["id"] for a in animais_lista}
-          pet_sel = st.selectbox("Selecionar Pet", list(pet_opcoes.keys()))
+          pet_sel = st.selectbox("Selecionar Pet", list(pet_opcoes.keys()), key="sel_pet_v")
           pet_sel_id = pet_opcoes[pet_sel]
 
-          nome_vacina = st.text_input("Nome da Vacina / Doenças Cobertas (Ex: V8, V10, Raiva)")
-          data_aplicacao = st.date_input("Data de Aplicação")
-          proxima_dose = st.date_input("Data do Próximo Reforço")
+          nome_vacina = st.text_input("Nome da Vacina (Ex: V8, V10, Raiva)")
+          data_aplicacao = st.date_input("Data de Aplicação", key="d_app_v")
+          proxima_dose = st.date_input("Próximo Reforço", key="d_prox_v")
 
           if st.form_submit_button("Registar Vacina"):
             try:
@@ -217,27 +217,39 @@ def render_tutor_dashboard(supabase):
                   "data_aplicacao": str(data_aplicacao),
                   "proxima_dose": str(proxima_dose),
               }).execute()
-              st.success("Vacina registada com sucesso na caderneta digital!")
+              st.success("Vacina registada com sucesso!")
               st.rerun()
             except Exception as e:
-              st.error(f"Erro ao registar vacina: {e}")
+              st.error(f"Erro: {e}")
 
-    with sub_d:
-      with st.form("form_tutor_desp_aba1"):
-        st.markdown("**Registar Desparasitação (Interna ou Externa)**")
+      # Tabela de Histórico de Vacinas
+      st.markdown("##### Histórico de Vacinas")
+      try:
+        res_all_v = supabase.table("registos_medicos_v2").select("nome_produto, data_aplicacao, proxima_dose").eq("tipo", "vacina").execute()
+        if res_all_v.data:
+          df_all_v = pd.DataFrame(res_all_v.data)
+          st.dataframe(df_all_v[["nome_produto", "data_aplicacao", "proxima_dose"]], use_container_width=True)
+        else:
+          st.info("Sem registos de vacinas.")
+      except Exception:
+        st.info("A carregar...")
+
+    with col_Bloco2:
+      st.subheader("💊 Registar & Consultar Desparasitação")
+      with st.form("form_tutor_desp_direto"):
         if not animais_lista:
           st.warning("Regista primeiro um animal.")
-          st.form_submit_button("Guardar", disabled=True)
+          st.form_submit_button("Guardar Desparasitação", disabled=True)
           pet_sel_d_id = None
         else:
           pet_opcoes_d = {a["nome"]: a["id"] for a in animais_lista}
-          pet_sel_d = st.selectbox("Selecionar Pet", list(pet_opcoes_d.keys()), key="pet_d_aba1")
+          pet_sel_d = st.selectbox("Selecionar Pet", list(pet_opcoes_d.keys()), key="sel_pet_d")
           pet_sel_d_id = pet_opcoes_d[pet_sel_d]
 
-          tipo_desp = st.selectbox("Tipo de Desparasitação", ["Interna (Comprimido/Xarope)", "Externa (Pipeta/Coleira)"])
-          nome_produto = st.text_input("Nome do Produto (Ex: Drontal, NexGard)")
-          data_aplicacao_d = st.date_input("Data de Aplicação", key="d_app_aba1")
-          proxima_dose_d = st.date_input("Próxima Dose Recomendada", key="d_prox_aba1")
+          tipo_desp = st.selectbox("Tipo", ["Interna (Comprimido)", "Externa (Pipeta)"])
+          nome_produto = st.text_input("Nome do Produto (Ex: Drontal)", key="prod_d")
+          data_aplicacao_d = st.date_input("Data de Aplicação", key="d_app_d")
+          proxima_dose_d = st.date_input("Próxima Dose", key="d_prox_d")
 
           if st.form_submit_button("Registar Desparasitação"):
             try:
@@ -252,37 +264,19 @@ def render_tutor_dashboard(supabase):
               st.success("Desparasitação registada com sucesso!")
               st.rerun()
             except Exception as e:
-              st.error(f"Erro ao registar desparasitação: {e}")
+              st.error(f"Erro: {e}")
 
-    # Duas tabelas lado a lado para consulta compacta de histórico
-    st.markdown("---")
-    st.subheader("📋 Histórico Geral de Saúde (Vacinas & Desparasitações)")
-    
-    col_tabela_v, col_tabela_d = st.columns(2)
-
-    with col_tabela_v:
-      st.markdown("🛡️ **Tabela de Vacinas**")
+      # Tabela de Histórico de Desparasitação
+      st.markdown("##### Histórico de Desparasitações")
       try:
-        res_all_v = supabase.table("registos_medicos_v2").select("animal_id, nome_produto, data_aplicacao, proxima_dose").eq("tipo", "vacina").execute()
-        if res_all_v.data:
-          df_all_v = pd.DataFrame(res_all_v.data)
-          st.dataframe(df_all_v[["nome_produto", "data_aplicacao", "proxima_dose"]], use_container_width=True)
-        else:
-          st.info("Sem registos de vacinas.")
-      except Exception:
-        st.info("A carregar vacinas...")
-
-    with col_tabela_d:
-      st.markdown("💊 **Tabela de Desparasitações**")
-      try:
-        res_all_d = supabase.table("registos_medicos_v2").select("animal_id, nome_produto, data_aplicacao, proxima_dose").eq("tipo", "desparasitacao").execute()
+        res_all_d = supabase.table("registos_medicos_v2").select("nome_produto, data_aplicacao, proxima_dose").eq("tipo", "desparasitacao").execute()
         if res_all_d.data:
           df_all_d = pd.DataFrame(res_all_d.data)
           st.dataframe(df_all_d[["nome_produto", "data_aplicacao", "proxima_dose"]], use_container_width=True)
         else:
-          st.info("Sem registos de desparasitações.")
+          st.info("Sem registos de desparasitação.")
       except Exception:
-        st.info("A carregar desparasitações...")
+        st.info("A carregar...")
 
   with tutor_tab2:
     st.header("Controlo Especializado para Fêmeas, Ninhadas e Adoções")
