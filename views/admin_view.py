@@ -266,6 +266,34 @@ def metodos_pagamento(sb):
           st.error("Este método já tem pagamentos associados. Desativa-o em vez de o apagar.")
 
   with st.expander("🏦 Bancos e logótipos"):
+    st.markdown("**➕ Cadastrar novo banco**")
+    st.caption("O código são os 4 dígitos que aparecem nas posições 5 a 8 de um IBAN angolano (ex.: AO06 **0055** ...).")
+    n1, n2 = st.columns(2)
+    n_cod = n1.text_input("Código do banco (4 dígitos)", max_chars=4, key=c.chave("nb_cod"))
+    n_nome = n2.text_input("Nome do banco", key=c.chave("nb_nome"))
+    n3, n4 = st.columns(2)
+    n_sigla = n3.text_input("Sigla (opcional)", key=c.chave("nb_sigla"))
+    n_dom = n4.text_input("Site (ex.: bancobic.ao)", key=c.chave("nb_dom"))
+    n_logo = st.file_uploader("Logótipo (opcional, PNG/JPG, máx. 1 MB)", type=["png", "jpg", "jpeg", "webp"], key=c.chave("nb_logo"))
+    if st.button("Guardar novo banco", key=c.chave("nb_btn")):
+      if not (n_cod.isdigit() and len(n_cod) == 4) or not n_nome.strip():
+        st.warning("Indica um código de 4 dígitos e o nome do banco.")
+      elif n_cod in bancos:
+        st.warning(f"O código {n_cod} já existe ({bancos[n_cod]['nome']}). Edita-o na lista abaixo.")
+      else:
+        try:
+          novo = {"codigo": n_cod, "nome": n_nome.strip(), "sigla": n_sigla.strip() or None, "dominio": n_dom.strip() or None}
+          if n_logo is not None:
+            novo["logo_path"] = c.enviar_ficheiro(sb, "logos-bancos", n_cod, n_logo)
+          sb.table("bancos").insert(novo).execute()
+          auditar(sb, "BANCO_CRIADO", f"{n_cod} · {n_nome.strip()}")
+          c.aviso("Banco cadastrado.")
+          c.novo_formulario()
+          st.rerun()
+        except Exception as e:
+          st.error(erro(e))
+    st.markdown("---")
+    st.markdown("**Bancos cadastrados**")
     if bancos:
       alvo = st.selectbox("Banco", list(bancos.values()), format_func=lambda b: f"{b['codigo']} · {b['nome']}", key="bk_sel")
       c.linha_banco(sb, alvo, alvo["nome"], f"Código {alvo['codigo']}" + (f" · {alvo['dominio']}" if alvo.get("dominio") else ""))
