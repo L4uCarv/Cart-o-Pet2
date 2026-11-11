@@ -8,6 +8,7 @@ import qrcode
 import streamlit as st
 
 from services.supabase_client import erro
+from utils import iban as iban_util
 from utils.protocolos import INFO_DESPARASITACAO, INFO_VACINAS, calcular_idade_pet
 
 EXT = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "application/pdf": "pdf"}
@@ -379,28 +380,75 @@ def pedido_credenciamento(sb, user_id):
       st.error(erro(e))
 
 
+# ---------- métodos de pagamento e bancos ----------
+def bancos_por_codigo(sb) -> dict:
+  return {b["codigo"]: b for b in sb.table("bancos").select("*").execute().data}
+
+
+def logo_banco(sb, banco):
+  """Logótipo do banco: ficheiro carregado > ícone do site do banco > nada."""
+  if not banco:
+    return None
+  if banco.get("logo_path"):
+    return sb.storage.from_("logos-bancos").get_public_url(banco["logo_path"])
+  if banco.get("dominio"):
+    return f"https://www.google.com/s2/favicons?domain={banco['dominio']}&sz=128"
+  return None
+
+
+def linha_banco(sb, banco, titulo: str, legenda: str = ""):
+  c1, c2 = st.columns([1, 8])
+  url = logo_banco(sb, banco)
+  if url:
+    c1.image(url, width=40)
+  else:
+    c1.markdown("🏦")
+  c2.markdown(f"**{titulo}**" + (f"  \n{legenda}" if legenda else ""))
+
+
+def mostrar_metodo(sb, m, bancos):
+  banco = bancos.get(m.get("banco_codigo") or "")
+  if m["tipo"] == "IBAN":
+    linha_banco(sb, banco, m.get("banco_nome") or "Banco", f"Titular: {m['titular']}")
+    st.code(iban_util.formatar(m["iban"]), language=None)
+  else:
+    linha_banco(sb, None, "Multicaixa Express", f"Titular: {m['titular']}")
+    st.code(m["telemovel"], language=None)
+
+
 def pagamentos(sb, user_id):
-  k = chave("pag")
-  c1, c2 = st.columns(2)
-  metodo = c1.selectbox("Método", ["MCX", "IBAN"], key=f"met_{k}")
-  valor = c2.number_input("Valor (AOA)", min_value=0.0, value=5000.0, step=500.0, key=f"val_{k}")
-  ref = st.text_input("Referência / descrição", key=f"ref_{k}")
-  comp = st.file_uploader("Comprovativo", type=["jpg", "jpeg", "png", "pdf"], key=f"comp_{k}")
-  if st.button("Submeter pagamento", type="primary", key=f"sub_{k}"):
-    if not ref.strip() or comp is None or valor <= 0:
-      st.warning("Preenche a referência, o valor e anexa o comprovativo.")
-    else:
-      try:
-        caminho = enviar_ficheiro(sb, "comprovativos", user_id, comp)
-        sb.table("transacoes_pagamentos").insert({
-            "utilizador_id": user_id, "metodo": metodo, "referencia": ref.strip(),
-            "valor": valor, "estado": "Pendente", "comprovativo_url": caminho,
-        }).execute()
-        aviso("Pagamento submetido para validação.")
-        novo_formulario()
-        st.rerun()
-      except Exception as e:
-        st.error(erro(e))
+  metodos = sb.table("metodos_pagamento").select("*").eq("ativo", True).order("criado_at").execute().data
+  bancos = bancos_por_codigo(sb) if metodos else {}
+  if not metodos:
+    st.info("A administração ainda não configurou métodos de pagamento.")
+  else:
+    st.markdown("**Onde pagar**")
+    for m in metodos:
+      with st.container(border=True):
+        mostrar_metodo(sb, m, bancos)
+    k = chave("pag")
+    escolha = st.selectbox(
+        "Paguei para", metodos, key=f"met_{k}",
+        format_func=lambda m: f"{m.get('banco_nome') or m['tipo']} · "
+                              + (iban_util.formatar(m["iban"])[-9:] if m["tipo"] == "IBAN" else m["telemovel"]))
+    valor = st.number_input("Valor (AOA)", min_value=0.0, value=5000.0, step=500.0, key=f"val_{k}")
+    ref = st.text_input("Referência / descrição", key=f"ref_{k}")
+    comp = st.file_uploader("Comprovativo", type=["jpg", "jpeg", "png", "pdf"], key=f"comp_{k}")
+    if st.button("Submeter pagamento", type="primary", key=f"sub_{k}"):
+      if not ref.strip() or comp is None or valor <= 0:
+        st.warning("Preenche a referência, o valor e anexa o comprovativo.")
+      else:
+        try:
+          caminho = enviar_ficheiro(sb, "comprovativos", user_id, comp)
+          sb.table("transacoes_pagamentos").insert({
+              "utilizador_id": user_id, "metodo": escolha["tipo"], "metodo_pagamento_id": escolha["id"],
+              "referencia": ref.strip(), "valor": valor, "estado": "Pendente", "comprovativo_url": caminho,
+          }).execute()
+          aviso("Pagamento submetido para validação.")
+          novo_formulario()
+          st.rerun()
+        except Exception as e:
+          st.error(erro(e))
   hist = sb.table("transacoes_pagamentos").select("criado_at, metodo, referencia, valor, estado").eq("utilizador_id", user_id).order("criado_at", desc=True).execute().data
   if hist:
     st.dataframe(pd.DataFrame(hist), use_container_width=True, hide_index=True)
