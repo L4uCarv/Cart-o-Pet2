@@ -2,6 +2,7 @@ import pandas as pd
 import streamlit as st
 
 from services.supabase_client import erro
+from utils import iban as iban_util
 from views import componentes as c
 
 PAPEIS = ["tutor", "criador", "clinica", "financeiro", "moderador", "super_admin"]
@@ -190,14 +191,106 @@ def auditoria(sb):
                use_container_width=True, hide_index=True)
 
 
+def metodos_pagamento(sb):
+  bancos = c.bancos_por_codigo(sb)
+  st.subheader("Novo método de pagamento")
+  tipo = st.radio("Tipo", ["IBAN", "MCX"], format_func=lambda x: "IBAN (conta bancária)" if x == "IBAN" else "Multicaixa Express (telemóvel)",
+                  horizontal=True, key=c.chave("mp_tipo"))
+  titular = st.text_input("Titular da conta", key=c.chave("mp_tit"))
+  dados, novo_banco, pronto = {"tipo": tipo, "titular": titular.strip()}, None, False
+
+  if tipo == "IBAN":
+    txt = st.text_input("IBAN", placeholder="AO06 0055 0000 9209 3133 1015 2", key=c.chave("mp_iban"))
+    s = iban_util.normalizar(txt)
+    if s:
+      if not iban_util.valido(s):
+        st.error("IBAN inválido: confirma os dígitos (o angolano tem 25 caracteres).")
+      else:
+        dados["iban"] = s
+        codigo = iban_util.codigo_banco(s)
+        banco = bancos.get(codigo) if codigo else None
+        if banco:
+          with st.container(border=True):
+            c.linha_banco(sb, banco, f"✅ {banco['nome']}", f"Código {codigo} · {iban_util.formatar(s)}")
+          pronto = True
+        else:
+          st.warning(f"O banco com código {codigo or 'estrangeiro'} ainda não está na lista. Indica-o uma vez e fica guardado para os próximos IBAN.")
+          nome = st.text_input("Nome do banco", key=c.chave("mp_bnome"))
+          dominio = st.text_input("Site do banco, para obter o logótipo (ex.: bancobic.ao)", key=c.chave("mp_bdom"))
+          logo = st.file_uploader("ou carregar o logótipo (PNG/JPG, máx. 1 MB)", type=["png", "jpg", "jpeg", "webp"], key=c.chave("mp_blogo"))
+          if dominio.strip():
+            c.linha_banco(sb, {"dominio": dominio.strip()}, nome or "Pré-visualização")
+          dados["banco_nome"] = nome.strip()
+          if codigo:
+            novo_banco = {"codigo": codigo, "nome": nome.strip(), "dominio": dominio.strip() or None, "_logo": logo}
+          pronto = bool(nome.strip())
+  else:
+    dados["telemovel"] = st.text_input("Nº de telemóvel Multicaixa Express", key=c.chave("mp_tel"))
+    pronto = bool(dados["telemovel"].strip())
+
+  if st.button("Guardar método", type="primary", key=c.chave("mp_btn"), disabled=not (pronto and titular.strip())):
+    try:
+      if novo_banco:
+        logo = novo_banco.pop("_logo")
+        if logo is not None:
+          novo_banco["logo_path"] = c.enviar_ficheiro(sb, "logos-bancos", novo_banco["codigo"], logo)
+        sb.table("bancos").insert(novo_banco).execute()
+      sb.table("metodos_pagamento").insert(dados).execute()
+      auditar(sb, "METODO_PAGAMENTO_CRIADO", f"{tipo} · {titular.strip()}")
+      c.aviso("Método de pagamento guardado.")
+      c.novo_formulario()
+      st.rerun()
+    except Exception as e:
+      st.error(erro(e))
+
+  st.markdown("---")
+  st.subheader("Métodos configurados")
+  metodos = sb.table("metodos_pagamento").select("*").order("criado_at", desc=True).execute().data
+  if not metodos:
+    st.info("Ainda não há métodos.")
+  for m in metodos:
+    with st.container(border=True):
+      c.mostrar_metodo(sb, m, bancos)
+      st.caption(("🟢 Ativo" if m["ativo"] else "⚪ Desativado"))
+      b1, b2 = st.columns(2)
+      if b1.button("Desativar" if m["ativo"] else "Ativar", key=f"mpa_{m['id']}"):
+        sb.table("metodos_pagamento").update({"ativo": not m["ativo"]}).eq("id", m["id"]).execute()
+        auditar(sb, "METODO_PAGAMENTO_ALTERADO", f"{m['titular']} → {'desativado' if m['ativo'] else 'ativado'}")
+        st.rerun()
+      if b2.button("Apagar", key=f"mpd_{m['id']}"):
+        try:
+          sb.table("metodos_pagamento").delete().eq("id", m["id"]).execute()
+          auditar(sb, "METODO_PAGAMENTO_APAGADO", m["titular"])
+          st.rerun()
+        except Exception:
+          st.error("Este método já tem pagamentos associados. Desativa-o em vez de o apagar.")
+
+  with st.expander("🏦 Bancos e logótipos"):
+    if bancos:
+      alvo = st.selectbox("Banco", list(bancos.values()), format_func=lambda b: f"{b['codigo']} · {b['nome']}", key="bk_sel")
+      c.linha_banco(sb, alvo, alvo["nome"], f"Código {alvo['codigo']}" + (f" · {alvo['dominio']}" if alvo.get("dominio") else ""))
+      dom = st.text_input("Site do banco (para o logótipo automático)", value=alvo.get("dominio") or "", key=f"bk_dom_{alvo['codigo']}")
+      img = st.file_uploader("Carregar logótipo oficial (substitui o automático)", type=["png", "jpg", "jpeg", "webp"], key=f"bk_img_{alvo['codigo']}")
+      if st.button("Guardar banco", key=f"bk_btn_{alvo['codigo']}"):
+        try:
+          upd = {"dominio": dom.strip() or None}
+          if img is not None:
+            upd["logo_path"] = c.enviar_ficheiro(sb, "logos-bancos", alvo["codigo"], img)
+          sb.table("bancos").update(upd).eq("codigo", alvo["codigo"]).execute()
+          c.aviso("Banco atualizado.")
+          st.rerun()
+        except Exception as e:
+          st.error(erro(e))
+
+
 def render_admin_dashboard(sb, papel):
   st.title("🛠️ Painel de Administração")
   if papel == "financeiro":
-    (aba,) = st.tabs(["💳 Pagamentos"])
-    with aba:
-      pagamentos(sb)
-    return
-  abas = st.tabs(["📊 Visão geral", "🏥 Credenciamentos", "💳 Pagamentos", "👥 Utilizadores", "🧾 Auditoria"])
-  for aba, funcao in zip(abas, [visao_geral, credenciamentos, pagamentos, utilizadores, auditoria]):
+    abas = st.tabs(["💳 Pagamentos", "🏦 Métodos de pagamento"])
+    funcoes = [pagamentos, metodos_pagamento]
+  else:
+    abas = st.tabs(["📊 Visão geral", "🏥 Credenciamentos", "💳 Pagamentos", "🏦 Métodos de pagamento", "👥 Utilizadores", "🧾 Auditoria"])
+    funcoes = [visao_geral, credenciamentos, pagamentos, metodos_pagamento, utilizadores, auditoria]
+  for aba, funcao in zip(abas, funcoes):
     with aba:
       funcao(sb)
