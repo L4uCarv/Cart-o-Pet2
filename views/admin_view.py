@@ -2,7 +2,12 @@ import pandas as pd
 import streamlit as st
 
 from services.supabase_client import erro
+from datetime import date
+
+from services import email_service
 from utils import iban as iban_util
+from utils.exportar import para_csv, para_excel
+from utils.recibo_pdf import gerar_recibo_pdf
 from views import componentes as c
 
 PAPEIS = ["tutor", "criador", "clinica", "financeiro", "moderador", "super_admin"]
@@ -113,22 +118,61 @@ def credenciamentos(sb):
         st.rerun()
 
 
+def depositos_por_banco(sb):
+  st.subheader("Depósitos por banco")
+  p1, p2 = st.columns(2)
+  de = p1.date_input("De (opcional)", value=None, key="dep_de")
+  ate = p2.date_input("Até (opcional)", value=None, key="dep_ate")
+  try:
+    dados = sb.rpc("admin_depositos_por_banco", {
+        "p_de": de.isoformat() if de else None, "p_ate": ate.isoformat() if ate else None,
+    }).execute().data or []
+  except Exception as e:
+    st.error(erro(e))
+    return
+  if not dados:
+    st.info("Ainda não há pagamentos no período.")
+    return
+  bancos = c.bancos_por_codigo(sb)
+  total = sum(float(d["aprovado"]) for d in dados)
+  pend = sum(float(d["pendente"]) for d in dados)
+  m1, m2 = st.columns(2)
+  m1.metric("Total depositado (aprovado)", fmt_aoa(total))
+  m2.metric("Por validar", fmt_aoa(pend))
+  for d in dados:
+    with st.container(border=True):
+      c.linha_banco(sb, bancos.get(d["banco_codigo"] or ""), d["banco_nome"],
+                    "Multicaixa Express" if d["tipo"] == "MCX" else "")
+      k1, k2, k3 = st.columns(3)
+      k1.metric("Aprovado", fmt_aoa(d["aprovado"]), f"{d['n_aprovado']} pagamento(s)", delta_color="off")
+      k2.metric("Por validar", fmt_aoa(d["pendente"]), f"{d['n_pendente']} pagamento(s)", delta_color="off")
+      k3.metric("Rejeitado", fmt_aoa(d["rejeitado"]), f"{d['n_rejeitado']} pagamento(s)", delta_color="off")
+  grafico = pd.DataFrame({"Aprovado (AOA)": {d["banco_nome"]: float(d["aprovado"]) for d in dados}})
+  st.bar_chart(grafico)
+  st.markdown("---")
+
+
 def pagamentos(sb):
+  depositos_por_banco(sb)
+  st.subheader("Pagamentos por validar")
   pend = sb.table("transacoes_pagamentos").select("*").eq("estado", "Pendente").order("criado_at").execute().data
   if not pend:
     st.info("Sem pagamentos pendentes.")
   for t in pend:
     with st.container(border=True):
-      st.markdown(f"**{fmt_aoa(t['valor'])}** · {t['metodo']} · {t['referencia']}")
+      st.markdown(f"**{fmt_aoa(t['valor'])}** · {t['metodo']} · {t['referencia']}" + (f" · {t['meses']} mês/meses" if t.get("meses") else ""))
       url = c.url_assinada(sb, "comprovativos", t["comprovativo_url"]) if t.get("comprovativo_url") else None
       if url:
         st.link_button("Ver comprovativo", url)
       c1, c2 = st.columns(2)
       if c1.button("Aprovar", type="primary", key=f"pa_{t['id']}"):
-        sb.table("transacoes_pagamentos").update({"estado": "Aprovado"}).eq("id", t["id"]).execute()
-        auditar(sb, "PAGAMENTO_APROVADO", f"{t['referencia']} · {t['valor']} AOA")
-        c.aviso("Pagamento aprovado.")
-        st.rerun()
+        try:
+          sb.table("transacoes_pagamentos").update({"estado": "Aprovado"}).eq("id", t["id"]).execute()
+          auditar(sb, "PAGAMENTO_APROVADO", f"{t['referencia']} · {t['valor']} AOA")
+          c.aviso("Pagamento aprovado e subscrição atualizada. " + emitir_recibo(sb, t["id"]))
+          st.rerun()
+        except Exception as e:
+          st.error(erro(e))
       if c2.button("Rejeitar", key=f"pr_{t['id']}"):
         sb.table("transacoes_pagamentos").update({"estado": "Rejeitado"}).eq("id", t["id"]).execute()
         auditar(sb, "PAGAMENTO_REJEITADO", f"{t['referencia']} · {t['valor']} AOA")
@@ -156,10 +200,11 @@ def utilizadores(sb):
   if busca:
     m = df["nome"].str.contains(busca, case=False, na=False) | df["email"].str.contains(busca, case=False, na=False)
     df = df[m]
-  vis = df.rename(columns={"nome": "Nome", "email": "E-mail", "papel": "Perfil", "criado_at": "Criado em", "n_animais": "Animais"})
+  vis = df.rename(columns={"nome": "Nome", "email": "E-mail", "papel": "Perfil", "criado_at": "Criado em", "n_animais": "Animais", "subscricao_valida_ate": "Subscrição até"})
   vis["Perfil"] = vis["Perfil"].map(lambda p: NOMES_PAPEL.get(p, p))
   vis["Criado em"] = pd.to_datetime(vis["Criado em"]).dt.strftime("%d/%m/%Y")
-  st.dataframe(vis[["Nome", "E-mail", "Perfil", "Animais", "Criado em"]], use_container_width=True, hide_index=True)
+  vis["Subscrição até"] = vis["Subscrição até"].map(lambda d: c.fmt(d) if d else "—")
+  st.dataframe(vis[["Nome", "E-mail", "Perfil", "Animais", "Subscrição até", "Criado em"]], use_container_width=True, hide_index=True)
 
   st.markdown("**Alterar perfil de um utilizador**")
   st.caption("Para Canil e Veterinário, prefere aprovar o pedido em *Credenciamentos*: o veterinário só usa códigos de acesso com credenciamento ativo.")
@@ -311,14 +356,154 @@ def metodos_pagamento(sb):
           st.error(erro(e))
 
 
+def smtp_cfg() -> dict:
+  chaves = ("SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASSWORD", "SMTP_FROM")
+  return {k: st.secrets.get(k) for k in chaves}
+
+
+def enviar_recibo_email(r: dict):
+  corpo = (f"Olá {r['cliente_nome']},\n\nConfirmámos o seu pagamento. Segue em anexo o recibo {r['numero']}.\n"
+           f"A sua subscrição está ativa até {c.fmt(r['valido_ate'])}.\n\nObrigado,\n{c.empresa()['nome']}")
+  return email_service.enviar(smtp_cfg(), r["cliente_email"], f"Recibo {r['numero']} - {c.empresa()['nome']}",
+                              corpo, gerar_recibo_pdf(r, c.empresa()), f"{r['numero']}.pdf")
+
+
+def emitir_recibo(sb, transacao_id) -> str:
+  """Depois de aprovar: o recibo já foi criado na base de dados; aqui envia-se por e-mail."""
+  rec = sb.table("recibos").select("*").eq("transacao_id", transacao_id).execute().data
+  if not rec:
+    return ""
+  r = rec[0]
+  if not email_service.configurado(smtp_cfg()):
+    return f"Recibo {r['numero']} emitido; o cliente pode descarregá-lo na app (configura o SMTP para o enviar por e-mail)."
+  ok, msg = enviar_recibo_email(r)
+  return f"Recibo {r['numero']} enviado para {r['cliente_email']}." if ok else f"Recibo {r['numero']} emitido, mas o e-mail falhou: {msg}"
+
+
+def planos(sb):
+  st.subheader("Novo plano de subscrição")
+  c1, c2, c3 = st.columns(3)
+  nome = c1.text_input("Nome (ex.: 3 meses)", key=c.chave("pl_nome"))
+  meses = c2.number_input("Duração (meses)", 1, 60, 1, key=c.chave("pl_meses"))
+  preco = c3.number_input("Preço (AOA)", 0.0, 100000000.0, 0.0, step=500.0, key=c.chave("pl_preco"))
+  if st.button("Guardar plano", type="primary", key=c.chave("pl_btn")):
+    if not nome.strip() or preco <= 0:
+      st.warning("Indica o nome e um preço maior que zero.")
+    else:
+      try:
+        sb.table("planos").insert({"nome": nome.strip(), "meses": int(meses), "preco": preco}).execute()
+        auditar(sb, "PLANO_CRIADO", f"{nome.strip()} · {meses} meses · {preco} AOA")
+        c.aviso("Plano guardado.")
+        c.novo_formulario()
+        st.rerun()
+      except Exception as e:
+        st.error(erro(e))
+  st.markdown("---")
+  lista = sb.table("planos").select("*").order("meses").execute().data
+  if not lista:
+    st.info("Ainda não há planos. Sem planos, os clientes não conseguem pagar.")
+  for p in lista:
+    with st.container(border=True):
+      a, b = st.columns([4, 1])
+      a.markdown(f"**{p['nome']}** · {p['meses']} mês/meses · {fmt_aoa(p['preco'])} · {'🟢 ativo' if p['ativo'] else '⚪ desativado'}")
+      if b.button("Desativar" if p["ativo"] else "Ativar", key=f"plt_{p['id']}"):
+        sb.table("planos").update({"ativo": not p["ativo"]}).eq("id", p["id"]).execute()
+        auditar(sb, "PLANO_ALTERADO", p["nome"])
+        st.rerun()
+  st.caption("O preço de um plano já usado não altera os pagamentos antigos: cada pagamento guarda o valor e a duração do momento.")
+
+
+def _datas(df, colunas, com_hora=True):
+  for col in colunas:
+    if col in df.columns:
+      s = pd.to_datetime(df[col], errors="coerce")
+      df[col] = s.dt.strftime("%d/%m/%Y %H:%M" if com_hora else "%d/%m/%Y").fillna("")
+  return df
+
+
+def _relatorios_dados(sb, papel, de, ate):
+  arg = {"p_de": de.isoformat() if de else None, "p_ate": ate.isoformat() if ate else None}
+  out = {}
+  d = sb.rpc("admin_relatorio_pagamentos", arg).execute().data or []
+  df = _datas(pd.DataFrame(d), ["data"]); df = _datas(df, ["valido_ate"], False)
+  out["Pagamentos"] = df.rename(columns={"data": "Data", "cliente_nome": "Cliente", "cliente_email": "E-mail", "banco": "Banco", "tipo": "Método",
+                                          "referencia": "Referência", "plano": "Plano", "meses": "Meses", "valor": "Valor (AOA)",
+                                          "estado": "Estado", "recibo": "Recibo", "valido_ate": "Subscrição até"})
+  d = sb.rpc("admin_depositos_por_banco", arg).execute().data or []
+  out["Depósitos por banco"] = pd.DataFrame(d).rename(columns={
+      "banco_codigo": "Código", "banco_nome": "Banco", "tipo": "Tipo", "aprovado": "Aprovado (AOA)", "n_aprovado": "Nº aprovados",
+      "pendente": "Por validar (AOA)", "n_pendente": "Nº por validar", "rejeitado": "Rejeitado (AOA)", "n_rejeitado": "Nº rejeitados"})
+  q = sb.table("recibos").select("numero, emitido_em, cliente_nome, cliente_email, descricao, valor, meses, valido_de, valido_ate, metodo, banco_nome").order("emitido_em", desc=True)
+  if de:
+    q = q.gte("emitido_em", de.isoformat())
+  if ate:
+    q = q.lte("emitido_em", ate.isoformat() + "T23:59:59")
+  df = _datas(pd.DataFrame(q.execute().data or []), ["emitido_em"]); df = _datas(df, ["valido_de", "valido_ate"], False)
+  out["Recibos emitidos"] = df.rename(columns={"numero": "Recibo", "emitido_em": "Emitido em", "cliente_nome": "Cliente", "cliente_email": "E-mail",
+                                               "descricao": "Descrição", "valor": "Valor (AOA)", "meses": "Meses", "valido_de": "Válido de",
+                                               "valido_ate": "Válido até", "metodo": "Método", "banco_nome": "Banco"})
+  if papel == "super_admin":
+    d = sb.rpc("admin_utilizadores").execute().data or []
+    df = _datas(_datas(pd.DataFrame(d), ["criado_at"], False), ["subscricao_valida_ate"], False)
+    out["Utilizadores e subscrições"] = df.drop(columns=["id"], errors="ignore").rename(columns={
+        "nome": "Nome", "email": "E-mail", "papel": "Perfil", "criado_at": "Criado em", "n_animais": "Animais", "subscricao_valida_ate": "Subscrição até"})
+  return out
+
+
+def relatorios(sb, papel):
+  st.subheader("Relatórios")
+  p1, p2 = st.columns(2)
+  de = p1.date_input("De (opcional)", value=None, key="rel_de")
+  ate = p2.date_input("Até (opcional)", value=None, key="rel_ate")
+  try:
+    dados = _relatorios_dados(sb, papel, de, ate)
+  except Exception as e:
+    st.error(erro(e))
+    return
+  nome = st.selectbox("Relatório", list(dados), key="rel_nome")
+  df = dados[nome]
+  if nome == "Pagamentos" and not df.empty:
+    aprov = df.loc[df["Estado"] == "Aprovado", "Valor (AOA)"].astype(float).sum()
+    st.metric("Total aprovado no período", fmt_aoa(aprov))
+  if df.empty:
+    st.info("Sem dados no período.")
+  else:
+    st.dataframe(df, use_container_width=True, hide_index=True)
+  hoje = date.today().isoformat()
+  slug = nome.lower().replace(" ", "_").replace("ç", "c").replace("õ", "o").replace("é", "e")
+  b1, b2, b3 = st.columns(3)
+  XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+  b1.download_button("⬇️ Excel", para_excel({nome: df}), file_name=f"{slug}_{hoje}.xlsx", mime=XLSX, disabled=df.empty, key="dl_xlsx")
+  b2.download_button("⬇️ CSV", para_csv(df), file_name=f"{slug}_{hoje}.csv", mime="text/csv", disabled=df.empty, key="dl_csv")
+  b3.download_button("⬇️ Tudo num Excel", para_excel({k: v for k, v in dados.items() if not v.empty} or {"Vazio": pd.DataFrame()}),
+                     file_name=f"relatorios_{hoje}.xlsx", mime=XLSX, key="dl_tudo")
+
+  st.markdown("---")
+  st.subheader("🧾 Recibos")
+  recs = sb.table("recibos").select("*").order("emitido_em", desc=True).limit(100).execute().data
+  if not recs:
+    st.caption("Ainda não foram emitidos recibos.")
+    return
+  r = st.selectbox("Recibo", recs, key="rec_sel", format_func=lambda x: f"{x['numero']} · {x['cliente_nome']} · {fmt_aoa(x['valor'])}")
+  d1, d2 = st.columns(2)
+  d1.download_button("⬇️ Descarregar PDF", gerar_recibo_pdf(r, c.empresa()), file_name=f"{r['numero']}.pdf", mime="application/pdf", key="rec_pdf")
+  if d2.button("✉️ Reenviar por e-mail", key="rec_mail", disabled=not email_service.configurado(smtp_cfg())):
+    ok, msg = enviar_recibo_email(r)
+    st.success(f"Enviado para {r['cliente_email']}.") if ok else st.error(f"Falhou: {msg}")
+  if not email_service.configurado(smtp_cfg()):
+    st.caption("Para enviar por e-mail, configura SMTP_HOST, SMTP_USER e SMTP_PASSWORD nos Secrets.")
+
+
 def render_admin_dashboard(sb, papel):
   st.title("🛠️ Painel de Administração")
   if papel == "financeiro":
-    abas = st.tabs(["💳 Pagamentos", "🏦 Métodos de pagamento"])
-    funcoes = [pagamentos, metodos_pagamento]
+    nomes = ["💳 Pagamentos", "📦 Planos", "🏦 Métodos de pagamento", "📥 Relatórios"]
+    funcoes = [pagamentos, planos, metodos_pagamento, lambda s: relatorios(s, papel)]
   else:
-    abas = st.tabs(["📊 Visão geral", "🏥 Credenciamentos", "💳 Pagamentos", "🏦 Métodos de pagamento", "👥 Utilizadores", "🧾 Auditoria"])
-    funcoes = [visao_geral, credenciamentos, pagamentos, metodos_pagamento, utilizadores, auditoria]
-  for aba, funcao in zip(abas, funcoes):
+    nomes = ["📊 Visão geral", "🏥 Credenciamentos", "💳 Pagamentos", "📦 Planos", "🏦 Métodos de pagamento",
+             "📥 Relatórios", "👥 Utilizadores", "🧾 Auditoria"]
+    funcoes = [visao_geral, credenciamentos, pagamentos, planos, metodos_pagamento,
+               lambda s: relatorios(s, papel), utilizadores, auditoria]
+  for aba, funcao in zip(st.tabs(nomes), funcoes):
     with aba:
       funcao(sb)
