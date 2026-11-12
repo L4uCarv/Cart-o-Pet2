@@ -9,6 +9,7 @@ import streamlit as st
 
 from services.supabase_client import erro
 from utils import iban as iban_util
+from utils.recibo_pdf import gerar_recibo_pdf
 from utils.protocolos import INFO_DESPARASITACAO, INFO_VACINAS, calcular_idade_pet
 
 EXT = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "application/pdf": "pdf"}
@@ -416,39 +417,78 @@ def mostrar_metodo(sb, m, bancos):
     st.code(m["telemovel"], language=None)
 
 
+def fmt_aoa(v) -> str:
+  return f"{float(v):,.0f} AOA".replace(",", " ")
+
+
+def empresa() -> dict:
+  return {"nome": st.secrets.get("EMPRESA_NOME", "CartãoPet"),
+          "nif": st.secrets.get("EMPRESA_NIF", ""), "morada": st.secrets.get("EMPRESA_MORADA", "")}
+
+
+def estado_subscricao(sb, user_id):
+  d = sb.table("perfis").select("subscricao_valida_ate").eq("id", user_id).execute().data
+  return d[0]["subscricao_valida_ate"] if d else None
+
+
 def pagamentos(sb, user_id):
-  metodos = sb.table("metodos_pagamento").select("*").eq("ativo", True).order("criado_at").execute().data
-  bancos = bancos_por_codigo(sb) if metodos else {}
-  if not metodos:
-    st.info("A administração ainda não configurou métodos de pagamento.")
+  ate = estado_subscricao(sb, user_id)
+  if ate and date.fromisoformat(ate) >= date.today():
+    st.success(f"✅ Subscrição ativa até **{fmt(ate)}**. Um novo pagamento prolonga a partir dessa data.")
+  elif ate:
+    st.warning(f"A tua subscrição terminou em {fmt(ate)}.")
   else:
-    st.markdown("**Onde pagar**")
+    st.info("Ainda não tens subscrição ativa.")
+
+  metodos = sb.table("metodos_pagamento").select("*").eq("ativo", True).order("criado_at").execute().data
+  planos = sb.table("planos").select("*").eq("ativo", True).order("meses").execute().data
+  bancos = bancos_por_codigo(sb) if metodos else {}
+  if not metodos or not planos:
+    st.info("A administração ainda não configurou os planos e os métodos de pagamento.")
+  else:
+    st.markdown("**1. Escolhe o tempo de subscrição**")
+    k = chave("pag")
+    plano = st.selectbox("Plano", planos, key=f"pl_{k}", format_func=lambda p: f"{p['nome']} · {fmt_aoa(p['preco'])}")
+    st.metric("Valor a pagar", fmt_aoa(plano["preco"]), f"{plano['meses']} mês/meses de acesso", delta_color="off")
+    st.markdown("**2. Faz o pagamento para um destes**")
     for m in metodos:
       with st.container(border=True):
         mostrar_metodo(sb, m, bancos)
-    k = chave("pag")
+    st.markdown("**3. Envia o comprovativo**")
     escolha = st.selectbox(
         "Paguei para", metodos, key=f"met_{k}",
         format_func=lambda m: f"{m.get('banco_nome') or m['tipo']} · "
                               + (iban_util.formatar(m["iban"])[-9:] if m["tipo"] == "IBAN" else m["telemovel"]))
-    valor = st.number_input("Valor (AOA)", min_value=0.0, value=5000.0, step=500.0, key=f"val_{k}")
-    ref = st.text_input("Referência / descrição", key=f"ref_{k}")
+    ref = st.text_input("Referência / descrição da transferência", key=f"ref_{k}")
     comp = st.file_uploader("Comprovativo", type=["jpg", "jpeg", "png", "pdf"], key=f"comp_{k}")
     if st.button("Submeter pagamento", type="primary", key=f"sub_{k}"):
-      if not ref.strip() or comp is None or valor <= 0:
-        st.warning("Preenche a referência, o valor e anexa o comprovativo.")
+      if not ref.strip() or comp is None:
+        st.warning("Preenche a referência e anexa o comprovativo.")
       else:
         try:
           caminho = enviar_ficheiro(sb, "comprovativos", user_id, comp)
           sb.table("transacoes_pagamentos").insert({
               "utilizador_id": user_id, "metodo": escolha["tipo"], "metodo_pagamento_id": escolha["id"],
-              "referencia": ref.strip(), "valor": valor, "estado": "Pendente", "comprovativo_url": caminho,
+              "plano_id": plano["id"], "referencia": ref.strip(), "valor": plano["preco"],
+              "estado": "Pendente", "comprovativo_url": caminho,
           }).execute()
-          aviso("Pagamento submetido para validação.")
+          aviso("Pagamento submetido. Assim que for confirmado, a subscrição é atualizada e recebes o recibo.")
           novo_formulario()
           st.rerun()
         except Exception as e:
           st.error(erro(e))
-  hist = sb.table("transacoes_pagamentos").select("criado_at, metodo, referencia, valor, estado").eq("utilizador_id", user_id).order("criado_at", desc=True).execute().data
+
+  hist = sb.table("transacoes_pagamentos").select("criado_at, metodo, referencia, valor, meses, estado").eq("utilizador_id", user_id).order("criado_at", desc=True).execute().data
   if hist:
-    st.dataframe(pd.DataFrame(hist), use_container_width=True, hide_index=True)
+    st.markdown("**Os meus pagamentos**")
+    df = pd.DataFrame(hist)
+    df["criado_at"] = pd.to_datetime(df["criado_at"]).dt.strftime("%d/%m/%Y")
+    st.dataframe(df.rename(columns={"criado_at": "Data", "metodo": "Método", "referencia": "Referência", "valor": "Valor", "meses": "Meses", "estado": "Estado"}),
+                 use_container_width=True, hide_index=True)
+  recibos = sb.table("recibos").select("*").eq("utilizador_id", user_id).order("emitido_em", desc=True).execute().data
+  if recibos:
+    st.markdown("**🧾 Os meus recibos**")
+    for r in recibos:
+      c1, c2 = st.columns([4, 1])
+      c1.write(f"{r['numero']} · {fmt_aoa(r['valor'])} · válido até {fmt(r['valido_ate'])}")
+      c2.download_button("PDF", gerar_recibo_pdf(r, empresa()), file_name=f"{r['numero']}.pdf", mime="application/pdf", key=f"rec_{r['id']}")
