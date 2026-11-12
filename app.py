@@ -1,3 +1,4 @@
+from datetime import date
 from pathlib import Path
 
 import streamlit as st
@@ -19,12 +20,13 @@ if "flash" in st.session_state:
 
 
 def carregar_perfil(user):
-  dados = sb.table("perfis").select("nome, papel").eq("id", user.id).execute().data
+  dados = sb.table("perfis").select("nome, papel, subscricao_valida_ate").eq("id", user.id).execute().data
   if not dados:
     raise RuntimeError("Perfil não encontrado. Contacta a administração.")
   st.session_state.update(
       user_id=user.id, user_email=user.email,
       user_nome=dados[0]["nome"], papel=dados[0]["papel"],
+      subscricao_ate=dados[0].get("subscricao_valida_ate"),
   )
 
 
@@ -63,6 +65,12 @@ if not st.session_state["user_id"]:
   st.stop()
 
 st.sidebar.info(f"**{st.session_state['user_nome']}**\n\n{st.session_state['user_email']}\n\nPerfil: **{st.session_state['papel'].upper()}**")
+if st.session_state["papel"] in ("tutor", "criador", "clinica"):
+  ate = st.session_state.get("subscricao_ate")
+  if ate and date.fromisoformat(ate) >= date.today():
+    st.sidebar.success(f"Subscrição ativa até {date.fromisoformat(ate).strftime('%d/%m/%Y')}")
+  else:
+    st.sidebar.warning("Sem subscrição ativa")
 if st.sidebar.button("🔄 Atualizar perfil"):
   carregar_perfil(sb.auth.get_user().user)
   st.rerun()
