@@ -76,8 +76,8 @@ def calcular_idade_pet(data_nascimento):
   if total_meses < 1:
     return "Menos de 1 mês", idade_anos_decimal
   elif total_meses < 12:
-    return f"{total_meses} meses", idade_anos_decimal
-  elif anos == 1:
-    return f"1 ano e {meses} meses" if meses > 0 else "1 ano", idade_anos_decimal
+    return (f"{total_meses} mês" if total_meses == 1 else f"{total_meses} meses"), idade_anos_decimal
   else:
-    return f"{anos} anos e {meses} meses" if meses > 0 else f"{anos} anos", idade_anos_decimal
+    txt_anos = "1 ano" if anos == 1 else f"{anos} anos"
+    txt_meses = "1 mês" if meses == 1 else f"{meses} meses"
+    return (f"{txt_anos} e {txt_meses}" if meses > 0 else txt_anos), idade_anos_decimal
