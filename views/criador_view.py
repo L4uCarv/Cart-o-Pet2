@@ -50,6 +50,7 @@ def render_criador_dashboard(sb):
         sb.table("animais").select("*").neq("tutor_id", user_id)
         .is_("arquivado_em", "null").order("nome").execute().data
     )
+    c.previsoes_cio(sb, dos_membros)
     c.painel_animal(sb, dos_membros, user_id, dono=False)
 
   with aba4:
