@@ -5,6 +5,7 @@ from services.supabase_client import erro
 from datetime import date
 
 from services import email_service
+from utils import conciliacao as conc
 from utils import iban as iban_util
 from utils.exportar import para_csv, para_excel
 from utils.recibo_pdf import gerar_recibo_pdf
@@ -494,15 +495,125 @@ def relatorios(sb, papel):
     st.caption("Para enviar por e-mail, configura SMTP_HOST, SMTP_USER e SMTP_PASSWORD nos Secrets.")
 
 
+ESTADOS_CONC = {"Encontrado": "🟢", "Possível": "🟠", "Já usado": "🔴", "Não encontrado": "⚪"}
+
+
+def _adivinhar(cols, palavras, padrao=0):
+  for i, col in enumerate(cols):
+    if any(p in col.lower() for p in palavras):
+      return i
+  return min(padrao, len(cols) - 1)
+
+
+def conciliacao(sb):
+  st.subheader("🔎 Conciliação com o extrato do banco")
+  st.caption("Carrega o extrato (Excel ou CSV) da conta onde recebes. A app sugere que créditos correspondem aos pagamentos por validar; "
+             "quem aprova és tu. O extrato não é guardado: só a impressão digital do crédito usado numa aprovação, para não poder ser reutilizado.")
+  ficheiro = st.file_uploader("Extrato do banco (.xlsx, .xls ou .csv)", type=["xlsx", "xls", "csv"], key="conc_file")
+  if ficheiro is not None:
+    conteudo = ficheiro.getvalue()
+    try:
+      fs = conc.folhas(conteudo, ficheiro.name)
+      folha = st.selectbox("Folha do Excel", fs, key="conc_folha") if len(fs) > 1 else (fs[0] if fs else None)
+      bruto = conc.ler_bruto(conteudo, ficheiro.name, folha)
+    except Exception as e:
+      st.error(f"Não foi possível ler o ficheiro: {e}")
+      return
+    st.markdown("**1. Confirma onde estão os nomes das colunas**")
+    st.dataframe(bruto.head(12).astype(str), use_container_width=True)
+    linha = st.number_input("Linha dos nomes das colunas (1 = primeira linha)", 1, max(1, min(len(bruto) - 1, 60)), 1, key="conc_linha")
+    df = conc.aplicar_cabecalho(bruto, int(linha))
+    cols = list(df.columns)
+    st.markdown("**2. Indica as colunas**")
+    a, b, d = st.columns(3)
+    col_data = a.selectbox("Data do movimento", cols, index=_adivinhar(cols, ["data"], 0), key="conc_cdata")
+    col_valor = d.selectbox("Valor creditado (entradas)", cols, index=_adivinhar(cols, ["créd", "cred", "valor", "entrada"], 1), key="conc_cvalor")
+    cols_desc = b.multiselect("Descrição / referência", cols, default=[cols[_adivinhar(cols, ["descr", "movim", "histór", "hist", "detalh"], 1)]], key="conc_cdesc")
+    if st.button("Carregar extrato", type="primary", key="conc_carregar"):
+      creditos = conc.preparar_creditos(df, col_data, cols_desc, col_valor)
+      st.session_state["conc_creditos"] = creditos
+      st.session_state["conc_nome"] = ficheiro.name
+
+  creditos = st.session_state.get("conc_creditos")
+  if creditos is None:
+    return
+  if creditos.empty:
+    st.warning("Não encontrei créditos (valores positivos) com essas colunas. Confirma a linha dos nomes e as colunas escolhidas.")
+    return
+  st.success(f"{len(creditos)} créditos lidos de «{st.session_state.get('conc_nome')}» · total {fmt_aoa(creditos['valor'].sum())}")
+  with st.expander("Ver os créditos lidos"):
+    ver = creditos[["data", "descricao", "valor"]].copy()
+    ver["data"] = ver["data"].dt.strftime("%d/%m/%Y")
+    st.dataframe(ver.rename(columns={"data": "Data", "descricao": "Descrição", "valor": "Valor (AOA)"}), use_container_width=True, hide_index=True)
+
+  st.markdown("**3. Compara**")
+  metodos = [m for m in sb.table("metodos_pagamento").select("*").eq("tipo", "IBAN").execute().data]
+  conta = st.selectbox("Este extrato é da conta", [None] + metodos, key="conc_conta",
+                       format_func=lambda m: "Todas as contas" if m is None else f"{m.get('banco_nome')} · {iban_util.formatar(m['iban'])[-9:]}")
+  q1, q2, q3 = st.columns(3)
+  antes = q1.number_input("Dias antes da submissão", 0, 60, 10, key="conc_antes", help="O cliente pode ter pago alguns dias antes de submeter o comprovativo.")
+  depois = q2.number_input("Dias depois da submissão", 0, 15, 2, key="conc_depois")
+  tol = q3.number_input("Tolerância no valor (AOA)", 0.0, 1000.0, 0.0, step=1.0, key="conc_tol")
+
+  pend = sb.rpc("admin_pagamentos_pendentes").execute().data or []
+  if conta is not None:
+    pend = [p for p in pend if p.get("metodo_pagamento_id") == conta["id"]]
+  if not pend:
+    st.info("Não há pagamentos por validar para esta conta.")
+    return
+  usados = {r["hash"] for r in sb.table("creditos_conciliados").select("hash").limit(10000).execute().data}
+  res = {r["id"]: r for r in conc.comparar(pend, creditos, usados, int(antes), int(depois), float(tol))}
+
+  contagem = pd.Series([r["estado"] for r in res.values()]).value_counts()
+  st.markdown(" · ".join(f"{ESTADOS_CONC[e]} {e}: **{n}**" for e, n in contagem.items()))
+
+  linhas = []
+  for p in pend:
+    r = res[p["id"]]
+    linhas.append({"Cliente": p["cliente_nome"], "Referência": p["referencia"], "Valor pago (AOA)": float(p["valor"]),
+                   "Submetido em": pd.Timestamp(p["data"]).strftime("%d/%m/%Y"), "Resultado": r["estado"],
+                   "Data do crédito": c.fmt(r.get("data_credito")) if r.get("data_credito") else "",
+                   "Descrição no extrato": r.get("descricao_credito", "")})
+  tabela = pd.DataFrame(linhas)
+  XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+  st.download_button("⬇️ Exportar resultado (Excel)", para_excel({"Conciliação": tabela}),
+                     file_name=f"conciliacao_{date.today().isoformat()}.xlsx", mime=XLSX, key="conc_xlsx")
+
+  for p in pend:
+    r = res[p["id"]]
+    with st.container(border=True):
+      st.markdown(f"{ESTADOS_CONC[r['estado']]} **{r['estado']}** · {p['cliente_nome']} · **{fmt_aoa(p['valor'])}** · ref. {p['referencia']}")
+      if r["estado"] in ("Encontrado", "Possível"):
+        st.caption(f"Crédito: {c.fmt(r['data_credito'])} · {fmt_aoa(r['valor_credito'])} · {r['descricao_credito']}")
+        if r["estado"] == "Possível":
+          st.caption(f"⚠️ A referência não aparece no extrato ({r['candidatos']} crédito(s) com o mesmo valor e data próxima). Confirma que é este.")
+        ok = True
+        if r["estado"] == "Possível":
+          ok = st.checkbox("Confirmo que este crédito corresponde a este pagamento", key=f"cc_ok_{p['id']}")
+        if st.button("Aprovar com este crédito", type="primary", key=f"cc_ap_{p['id']}", disabled=not ok):
+          try:
+            sb.rpc("aprovar_pagamento_conciliado", {"p_transacao": p["id"], "p_hash": r["hash"],
+                                                    "p_data": r["data_credito"].isoformat(), "p_valor": r["valor_credito"]}).execute()
+            auditar(sb, "PAGAMENTO_APROVADO_CONCILIACAO", f"{p['referencia']} · {p['valor']} AOA · crédito de {c.fmt(r['data_credito'])}")
+            c.aviso("Pagamento aprovado e subscrição atualizada. " + emitir_recibo(sb, p["id"]))
+            st.rerun()
+          except Exception as e:
+            st.error(erro(e))
+      elif r["estado"] == "Já usado":
+        st.caption("O crédito correspondente já serviu para aprovar outro pagamento. Possível comprovativo reutilizado: não aprovar.")
+      else:
+        st.caption("Não há crédito correspondente no extrato. Não aprovar até aparecer.")
+
+
 def render_admin_dashboard(sb, papel):
   st.title("🛠️ Painel de Administração")
   if papel == "financeiro":
-    nomes = ["💳 Pagamentos", "📦 Planos", "🏦 Métodos de pagamento", "📥 Relatórios"]
-    funcoes = [pagamentos, planos, metodos_pagamento, lambda s: relatorios(s, papel)]
+    nomes = ["💳 Pagamentos", "🔎 Conciliação", "📦 Planos", "🏦 Métodos de pagamento", "📥 Relatórios"]
+    funcoes = [pagamentos, conciliacao, planos, metodos_pagamento, lambda s: relatorios(s, papel)]
   else:
-    nomes = ["📊 Visão geral", "🏥 Credenciamentos", "💳 Pagamentos", "📦 Planos", "🏦 Métodos de pagamento",
+    nomes = ["📊 Visão geral", "🏥 Credenciamentos", "💳 Pagamentos", "🔎 Conciliação", "📦 Planos", "🏦 Métodos de pagamento",
              "📥 Relatórios", "👥 Utilizadores", "🧾 Auditoria"]
-    funcoes = [visao_geral, credenciamentos, pagamentos, planos, metodos_pagamento,
+    funcoes = [visao_geral, credenciamentos, pagamentos, conciliacao, planos, metodos_pagamento,
                lambda s: relatorios(s, papel), utilizadores, auditoria]
   for aba, funcao in zip(st.tabs(nomes), funcoes):
     with aba:
