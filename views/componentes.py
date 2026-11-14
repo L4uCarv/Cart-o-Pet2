@@ -9,7 +9,10 @@ import streamlit as st
 
 from services.supabase_client import erro
 from utils import iban as iban_util
+from utils import relatorios_pets as rp
+from utils.exportar import para_excel
 from utils.recibo_pdf import gerar_recibo_pdf
+from utils.relatorios_pets_pdf import gerar_historico_pdf, gerar_resumo_pdf
 from utils.protocolos import INFO_DESPARASITACAO, INFO_VACINAS, calcular_idade_pet
 
 EXT = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "application/pdf": "pdf"}
@@ -359,6 +362,76 @@ def painel_animal(sb, animais, user_id, dono: bool = True):
     secao_acesso_vet(sb, animal)
   with abas[5]:
     secao_transferir(sb, animal, user_id)
+
+
+MAX_VINHETAS_PDF = 40
+
+
+def relatorios_pets(sb, animais, tutor_nome):
+  """Relatórios do tutor: resumo atual de todos os animais e histórico detalhado de cada um."""
+  if not animais:
+    st.info("Regista pelo menos um animal para gerar relatórios.")
+    return
+  tipo = st.radio("Tipo de relatório", ["📌 Resumo atual (dados mais recentes)", "📚 Histórico detalhado"], key="rp_tipo")
+  detalhado = tipo.startswith("📚")
+  com_fotos = False
+  if detalhado:
+    escolhidos = st.multiselect("Animais", animais, default=animais, format_func=lambda a: a["nome"], key="rp_animais")
+    com_fotos = st.checkbox(f"Incluir as fotos das vinhetas no PDF (até {MAX_VINHETAS_PDF}; demora mais)", key="rp_fotos")
+  else:
+    escolhidos = animais
+    st.caption("Um quadro por animal, com os dados do cadastro, o último peso, a última consulta e a situação atual de cada vacina e desparasitação.")
+  if not escolhidos:
+    st.info("Escolhe pelo menos um animal.")
+    return
+
+  ids = [a["id"] for a in escolhidos]
+  regs = sb.table("registos_medicos_v2").select("*").in_("animal_id", ids).order("data_aplicacao", desc=True).execute().data
+  cons = sb.table("prontuario_medico").select("*").in_("animal_id", ids).order("criado_at", desc=True).execute().data
+  pesos = sb.table("pesos_animal").select("*").in_("animal_id", ids).order("medido_em", desc=True).execute().data
+
+  if detalhado:
+    folhas = rp.historico_dfs(escolhidos, regs, cons, pesos)
+    nome_base = "historico_detalhado"
+    abas = st.tabs(list(folhas))
+    for aba, df in zip(abas, folhas.values()):
+      with aba:
+        st.dataframe(df, use_container_width=True, hide_index=True) if len(df) else st.caption("Sem registos.")
+  else:
+    resumo, situacao = rp.resumo_dfs(escolhidos, regs, cons, pesos)
+    folhas = {"Resumo": resumo, "Situação das vacinas": situacao}
+    nome_base = "resumo_animais"
+    st.dataframe(resumo, use_container_width=True, hide_index=True)
+    if len(situacao):
+      st.markdown("**Situação de cada vacina e desparasitação**")
+      st.dataframe(situacao, use_container_width=True, hide_index=True)
+
+  hoje = date.today().isoformat()
+  b1, b2 = st.columns(2)
+  b1.download_button("⬇️ Excel", para_excel({k: v for k, v in folhas.items() if len(v)} or {"Vazio": pd.DataFrame()}),
+                     file_name=f"{nome_base}_{hoje}.xlsx", key="rp_xlsx",
+                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+  assinatura = (detalhado, tuple(ids), com_fotos)
+  if b2.button("📄 Gerar PDF", type="primary", key="rp_gerar"):
+    with st.spinner("A gerar o PDF..."):
+      try:
+        if detalhado:
+          imagens = {}
+          if com_fotos:
+            for r in [r for r in rp.ativos(regs) if r.get("comprovativo_url")][:MAX_VINHETAS_PDF]:
+              try:
+                imagens[r["comprovativo_url"]] = sb.storage.from_("vinhetas").download(r["comprovativo_url"])
+              except Exception:
+                pass
+          pdf = gerar_historico_pdf(tutor_nome, escolhidos, regs, cons, pesos, imagens)
+        else:
+          pdf = gerar_resumo_pdf(tutor_nome, escolhidos, regs, cons, pesos)
+        st.session_state["rp_pdf"] = (assinatura, pdf, f"{nome_base}_{hoje}.pdf")
+      except Exception as e:
+        st.error(erro(e))
+  guardado = st.session_state.get("rp_pdf")
+  if guardado and guardado[0] == assinatura:
+    st.download_button("⬇️ Descarregar o PDF", guardado[1], file_name=guardado[2], mime="application/pdf", key="rp_pdf_dl")
 
 
 # ---------- credenciamento e pagamentos ----------
