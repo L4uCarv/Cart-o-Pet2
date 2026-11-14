@@ -203,7 +203,7 @@ def utilizadores(sb):
   vis = df.rename(columns={"nome": "Nome", "email": "E-mail", "papel": "Perfil", "criado_at": "Criado em", "n_animais": "Animais", "subscricao_valida_ate": "Subscrição até"})
   vis["Perfil"] = vis["Perfil"].map(lambda p: NOMES_PAPEL.get(p, p))
   vis["Criado em"] = pd.to_datetime(vis["Criado em"]).dt.strftime("%d/%m/%Y")
-  vis["Subscrição até"] = vis["Subscrição até"].map(lambda d: c.fmt(d) if d else "—")
+  vis["Subscrição até"] = vis["Subscrição até"].map(c.fmt)
   st.dataframe(vis[["Nome", "E-mail", "Perfil", "Animais", "Subscrição até", "Criado em"]], use_container_width=True, hide_index=True)
 
   st.markdown("**Alterar perfil de um utilizador**")
