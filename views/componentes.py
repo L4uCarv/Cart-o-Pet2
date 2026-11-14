@@ -434,6 +434,22 @@ def estado_subscricao(sb, user_id):
   return d[0]["subscricao_valida_ate"] if d else None
 
 
+def mostrar_metodo_compacto(sb, m, bancos):
+  """Versão pequena de um método de pagamento, para mostrar vários lado a lado."""
+  if m["tipo"] == "IBAN":
+    url = logo_banco(sb, bancos.get(m.get("banco_codigo") or ""))
+    valor = iban_util.formatar(m["iban"])
+  else:
+    url, valor = None, m["telemovel"]
+  c1, c2 = st.columns([1, 4])
+  if url:
+    c1.image(url, width=24)
+  else:
+    c1.markdown("🏦")
+  c2.caption(f"**{m.get('banco_nome') or 'Multicaixa Express'}**  \n{m['titular']}")
+  st.code(valor, language=None, wrap_lines=True)
+
+
 def pagamentos(sb, user_id):
   ate = estado_subscricao(sb, user_id)
   if ate and date.fromisoformat(ate) >= date.today():
@@ -454,9 +470,11 @@ def pagamentos(sb, user_id):
     plano = st.selectbox("Plano", planos, key=f"pl_{k}", format_func=lambda p: f"{p['nome']} · {fmt_aoa(p['preco'])}")
     st.metric("Valor a pagar", fmt_aoa(plano["preco"]), f"{plano['meses']} mês/meses de acesso", delta_color="off")
     st.markdown("**2. Faz o pagamento para um destes**")
-    for m in metodos:
-      with st.container(border=True):
-        mostrar_metodo(sb, m, bancos)
+    colunas = st.columns(min(len(metodos), 3))  # lado a lado (máx. 3 por linha)
+    for i, m in enumerate(metodos):
+      with colunas[i % len(colunas)]:
+        with st.container(border=True):
+          mostrar_metodo_compacto(sb, m, bancos)
     st.markdown("**3. Envia o comprovativo**")
     escolha = st.selectbox(
         "Paguei para", metodos, key=f"met_{k}",
