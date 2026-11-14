@@ -11,9 +11,9 @@ def render_criador_dashboard(sb):
   user_id = st.session_state["user_id"]
   st.title("🧬 Painel do Canil")
 
-  aba1, aba2, aba3, aba4, aba5 = st.tabs([
+  aba1, aba2, aba3, aba4, aba5, aba6 = st.tabs([
       "🐕 Os meus animais", "👥 Membros do canil", "🏡 Animais dos membros",
-      "🍼 Ninhadas", "💳 Pagamentos",
+      "🍼 Ninhadas", "💳 Pagamentos", "📄 Relatórios",
   ])
 
   with aba1:
@@ -21,6 +21,7 @@ def render_criador_dashboard(sb):
     animais = c.meus_animais(sb, user_id)
     with st.expander("➕ Registar novo animal", expanded=not animais):
       c.registar_animal(sb, user_id)
+    c.previsoes_cio(sb, animais)
     c.painel_animal(sb, animais, user_id)
 
   with aba2:
@@ -73,3 +74,6 @@ def render_criador_dashboard(sb):
 
   with aba5:
     c.pagamentos(sb, user_id)
+
+  with aba6:
+    c.relatorios_pets(sb, c.meus_animais(sb, user_id), st.session_state["user_nome"])
