@@ -30,7 +30,10 @@ def chave(*partes) -> str:
 
 
 def fmt(d) -> str:
-  return date.fromisoformat(str(d)[:10]).strftime("%d/%m/%Y") if d else "—"
+  """Data dd/mm/aaaa; devolve — para vazio, None ou NaN (o pandas 3 usa NaN em colunas de texto)."""
+  if d is None or d == "" or pd.isna(d):
+    return "—"
+  return date.fromisoformat(str(d)[:10]).strftime("%d/%m/%Y")
 
 
 def estado_reforco(proxima) -> str:
