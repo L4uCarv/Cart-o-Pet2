@@ -92,6 +92,9 @@ def registar_animal(sb, user_id):
   if especie == "Cão":
     porte = st.selectbox("Porte (define a idade do 1.º cio nas cadelas)", list(PORTES), index=1,
                          format_func=PORTES.get, key=f"porte_{k}")
+  esterilizado = False
+  if sexo == "Fêmea" and especie in ("Cão", "Gato"):
+    esterilizado = st.checkbox("Esterilizada (castrada): sem cio", key=f"esteril_{k}")
   st.caption(f"📅 Idade: {calcular_idade_pet(nasc)[0]}")
   chip = st.text_input("Microchip (opcional)", key=f"chip_{k}")
   peso = st.number_input("Peso atual (kg)", 0.0, 100.0, 0.0, step=0.1, key=f"peso_{k}")
@@ -104,6 +107,7 @@ def registar_animal(sb, user_id):
           "tutor_id": user_id, "nome": nome.strip(), "especie": especie,
           "raca": raca.strip() or None, "sexo": sexo,
           "data_nascimento": nasc.isoformat(), "microchip": chip.strip() or None, "porte": porte,
+          "esterilizado": esterilizado,
       }).execute().data[0]
       if peso > 0:
         sb.table("pesos_animal").insert({"animal_id": novo["id"], "peso_kg": peso}).execute()
@@ -365,6 +369,8 @@ def previsoes_cio(sb, animais):
   """Quadro com a previsão (cadelas) e a estimativa (gatas) de todas as fêmeas, mais avisos de proximidade."""
   fem = [a for a in animais if a.get("sexo") == "Fêmea" and a["especie"] in ("Cão", "Gato") and not a.get("esterilizado")]
   if not fem:
+    if animais:
+      st.caption("🌸 A previsão de cio (cadelas) e a estimativa (gatas) aparecem nas fichas das fêmeas não esterilizadas, no separador **Cio**.")
     return
   por = _datas_cio(sb, [a["id"] for a in fem])
   linhas, alertas = [], []
