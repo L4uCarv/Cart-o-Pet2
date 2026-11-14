@@ -11,11 +11,13 @@ def render_tutor_dashboard(sb):
   c.caixa_transferencias(sb, user_id, email)
   animais = c.meus_animais(sb, user_id)
 
-  aba1, aba2, aba3 = st.tabs(["🐶 Animais e saúde", "💳 Pagamentos", "🏥 Pedir conta Canil / Veterinário"])
+  aba1, aba_rel, aba2, aba3 = st.tabs(["🐶 Animais e saúde", "📄 Relatórios", "💳 Pagamentos", "🏥 Pedir conta Canil / Veterinário"])
   with aba1:
     with st.expander("➕ Registar novo animal", expanded=not animais):
       c.registar_animal(sb, user_id)
     c.painel_animal(sb, animais, user_id)
+  with aba_rel:
+    c.relatorios_pets(sb, animais, st.session_state["user_nome"])
   with aba2:
     c.pagamentos(sb, user_id)
   with aba3:
