@@ -15,6 +15,7 @@ def render_tutor_dashboard(sb):
   with aba1:
     with st.expander("➕ Registar novo animal", expanded=not animais):
       c.registar_animal(sb, user_id)
+    c.previsoes_cio(sb, animais)
     c.painel_animal(sb, animais, user_id)
   with aba_rel:
     c.relatorios_pets(sb, animais, st.session_state["user_nome"])
