@@ -9,6 +9,7 @@ import streamlit as st
 
 from services.supabase_client import erro
 from utils import iban as iban_util
+from utils import cio as cio_util
 from utils import relatorios_pets as rp
 from utils.exportar import para_excel
 from utils.recibo_pdf import gerar_recibo_pdf
@@ -68,6 +69,9 @@ def url_assinada(sb, bucket: str, caminho: str):
     return None
 
 
+PORTES = {"pequeno": "Pequeno (até 10 kg)", "medio": "Médio (10 a 25 kg)", "grande": "Grande (mais de 25 kg)"}
+
+
 # ---------- animais ----------
 def meus_animais(sb, user_id):
   return (
@@ -84,6 +88,10 @@ def registar_animal(sb, user_id):
   raca = c2.text_input("Raça", key=f"raca_{k}")
   sexo = c1.selectbox("Sexo", ["Macho", "Fêmea"], key=f"sexo_{k}")
   nasc = c2.date_input("Data de nascimento", value=date.today(), max_value=date.today(), key=f"nasc_{k}")
+  porte = None
+  if especie == "Cão":
+    porte = st.selectbox("Porte (define a idade do 1.º cio nas cadelas)", list(PORTES), index=1,
+                         format_func=PORTES.get, key=f"porte_{k}")
   st.caption(f"📅 Idade: {calcular_idade_pet(nasc)[0]}")
   chip = st.text_input("Microchip (opcional)", key=f"chip_{k}")
   peso = st.number_input("Peso atual (kg)", 0.0, 100.0, 0.0, step=0.1, key=f"peso_{k}")
@@ -95,7 +103,7 @@ def registar_animal(sb, user_id):
       novo = sb.table("animais").insert({
           "tutor_id": user_id, "nome": nome.strip(), "especie": especie,
           "raca": raca.strip() or None, "sexo": sexo,
-          "data_nascimento": nasc.isoformat(), "microchip": chip.strip() or None,
+          "data_nascimento": nasc.isoformat(), "microchip": chip.strip() or None, "porte": porte,
       }).execute().data[0]
       if peso > 0:
         sb.table("pesos_animal").insert({"animal_id": novo["id"], "peso_kg": peso}).execute()
@@ -137,16 +145,14 @@ def formulario_registo(sb, animal, tipo: str, clinico: bool = False):
     temp = c7.number_input("Temp. (°C)", 0.0, 43.0, 0.0, step=0.1, key=f"tc_{k}")
     extra = {"via_administracao": via, "peso_clinico": peso or None, "temperatura_clinica": temp or None}
 
-  st.markdown("**📸 Vinheta (obrigatória)**")
-  foto = st.camera_input("Tirar foto da vinheta", key=f"cam_{k}")
-  ficheiro = st.file_uploader("ou carregar ficheiro", type=["jpg", "jpeg", "png", "webp"], key=f"fic_{k}")
-  vinheta = foto or ficheiro
+  st.markdown("**🏷️ Vinheta (obrigatória)**")
+  vinheta = st.file_uploader("Carregar imagem da vinheta", type=["jpg", "jpeg", "png", "webp"], key=f"fic_{k}")
 
   if st.button("Guardar registo", type="primary", key=f"gravar_{k}"):
     if not produto.strip():
       st.warning("Indica o produto aplicado.")
     elif vinheta is None:
-      st.warning("A foto da vinheta é obrigatória.")
+      st.warning("A imagem da vinheta é obrigatória.")
     elif validade and validade < data:
       st.warning("O lote já estava fora de validade na data de aplicação.")
     else:
@@ -337,6 +343,129 @@ def caixa_convites(sb):
           st.rerun()
 
 
+# ---------- cio: previsão (cadelas) e estimativa (gatas) ----------
+def _datas_cio(sb, ids):
+  por = {}
+  if not ids:
+    return por
+  for x in sb.table("cios_animal").select("animal_id, data_inicio").in_("animal_id", ids).execute().data:
+    por.setdefault(x["animal_id"], []).append(date.fromisoformat(x["data_inicio"]))
+  return por
+
+
+def _situacao_cio(r) -> str:
+  if r["estado"] == "janela":
+    return "na janela agora"
+  if r["estado"] == "ultrapassado":
+    return "ultrapassado: regista o cio, se já houve"
+  return f"a partir de {fmt(r['inicio'].isoformat())}" if r["inicio"] else ""
+
+
+def previsoes_cio(sb, animais):
+  """Quadro com a previsão (cadelas) e a estimativa (gatas) de todas as fêmeas, mais avisos de proximidade."""
+  fem = [a for a in animais if a.get("sexo") == "Fêmea" and a["especie"] in ("Cão", "Gato") and not a.get("esterilizado")]
+  if not fem:
+    return
+  por = _datas_cio(sb, [a["id"] for a in fem])
+  linhas, alertas = [], []
+  for a in fem:
+    r = cio_util.prever(a, por.get(a["id"], []))
+    rotulo = "Estimativa" if a["especie"] == "Gato" else "Previsão"
+    if not r["aplicavel"]:
+      linhas.append({"Animal": a["nome"], "Tipo": rotulo, "Quando": "—", "Janela": "", "Confiança": "", "Situação": r["texto"]})
+      continue
+    linhas.append({"Animal": a["nome"], "Tipo": rotulo, "Quando": fmt(r["central"].isoformat()),
+                   "Janela": f"{fmt(r['inicio'].isoformat())} a {fmt(r['fim'].isoformat())}",
+                   "Confiança": r["confianca"], "Situação": _situacao_cio(r)})
+    if r["alerta"]:
+      alertas.append(f"🌸 **{a['nome']}** ({rotulo.lower()}): "
+                     + ("está na janela do cio agora." if r["estado"] == "janela"
+                        else f"cio possível a partir de {fmt(r['inicio'].isoformat())}."))
+  with st.expander("🌸 Cio: previsões (cadelas) e estimativas (gatas)", expanded=bool(alertas)):
+    for al in alertas:
+      st.warning(al)
+    st.dataframe(pd.DataFrame(linhas), use_container_width=True, hide_index=True)
+    st.caption("Cadelas: **previsão** calculada com o histórico do próprio animal. Gatas: apenas uma **estimativa** orientativa. "
+               "Regista os cios na ficha de cada animal para melhorar os resultados.")
+
+
+def secao_cio(sb, animal):
+  aid, cadela = animal["id"], animal["especie"] == "Cão"
+  if cadela:
+    st.info("🔮 **Previsão.** Nas cadelas o ciclo é regular, por isso a data é calculada a partir do histórico do próprio animal "
+            "e fica mais precisa a cada cio registado.")
+  else:
+    st.warning("📍 **Estimativa.** Nas gatas o cio depende de muitos fatores (luz do dia, estação, acasalamento). "
+               "O resultado é apenas uma estimativa orientativa, não uma previsão.")
+
+  c1, c2 = st.columns(2)
+  porte = animal.get("porte")
+  if cadela:
+    opcoes = list(PORTES)
+    porte_novo = c1.selectbox("Porte", opcoes, index=opcoes.index(porte) if porte in opcoes else None, placeholder="Escolhe o porte",
+                              format_func=PORTES.get, key=f"porte_{aid}")
+  else:
+    porte_novo = None
+  esteril_novo = c2.checkbox("Esterilizada (castrada)", value=bool(animal.get("esterilizado")), key=f"esteril_{aid}")
+  mudou = esteril_novo != bool(animal.get("esterilizado")) or (cadela and porte_novo != porte)
+  if mudou and st.button("Guardar alterações", key=f"guardar_cio_{aid}"):
+    try:
+      upd = {"esterilizado": esteril_novo}
+      if cadela:
+        upd["porte"] = porte_novo
+      sb.table("animais").update(upd).eq("id", aid).execute()
+      aviso("Dados guardados.")
+      st.rerun()
+    except Exception as e:
+      st.error(erro(e))
+
+  cios = sb.table("cios_animal").select("*").eq("animal_id", aid).order("data_inicio").execute().data
+  r = cio_util.prever(animal, [date.fromisoformat(x["data_inicio"]) for x in cios])
+  st.subheader("Previsão do próximo cio" if cadela else "Estimativa do próximo cio")
+  if not r["aplicavel"]:
+    st.info(r["texto"])
+  else:
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Data central" if cadela else "Data aproximada", fmt(r["central"].isoformat()))
+    m2.metric("Janela", f"{r['inicio'].strftime('%d/%m')} a {r['fim'].strftime('%d/%m/%Y')}")
+    m3.metric("Confiança", r["confianca"])
+    (st.warning if r["alerta"] else st.success)(r["texto"])
+    for nota in r["notas"]:
+      st.caption("• " + nota)
+  st.caption("Não serve para escolher o melhor momento para acasalar: isso exige acompanhamento veterinário. "
+             "Sinais como sangramento, vulva inchada ou mudança de comportamento valem mais do que qualquer previsão.")
+
+  st.markdown("**Registar um cio**")
+  k = chave("cio", aid)
+  d1, d2 = st.columns([1, 2])
+  data = d1.date_input("Data de início", value=date.today(), max_value=date.today(), key=f"cdata_{k}")
+  obs = d2.text_input("Observações (opcional)", key=f"cobs_{k}")
+  if st.button("Registar cio", type="primary", key=f"cbtn_{k}"):
+    try:
+      sb.table("cios_animal").insert({"animal_id": aid, "data_inicio": data.isoformat(), "observacoes": obs.strip() or None}).execute()
+      aviso("Cio registado. A previsão foi atualizada.")
+      novo_formulario()
+      st.rerun()
+    except Exception as e:
+      st.error("Já existe um cio registado nessa data." if "duplicate" in erro(e).lower() else erro(e))
+
+  if cios:
+    st.markdown("**Cios registados**")
+    anterior = None
+    for x in reversed(cios):
+      d = date.fromisoformat(x["data_inicio"])
+      a1, a2, a3 = st.columns([2, 3, 1])
+      a1.write(fmt(x["data_inicio"]))
+      a2.caption((x.get("observacoes") or "") )
+      if a3.button("Apagar", key=f"capagar_{x['id']}"):
+        sb.table("cios_animal").delete().eq("id", x["id"]).execute()
+        aviso("Registo apagado.")
+        st.rerun()
+    if len(cios) >= 2:
+      ds = [date.fromisoformat(x["data_inicio"]) for x in cios]
+      st.caption("Intervalos entre cios (dias): " + ", ".join(str((b - a).days) for a, b in zip(ds, ds[1:])))
+
+
 # ---------- painel de um animal ----------
 def painel_animal(sb, animais, user_id, dono: bool = True):
   if not animais:
@@ -349,18 +478,23 @@ def painel_animal(sb, animais, user_id, dono: bool = True):
   if not dono:
     historico(sb, animal)
     return
-  abas = st.tabs(["📋 Histórico", "💉 Vacina", "💊 Desparasitação", "⚖️ Peso", "🩺 Veterinário", "🏡 Transferir"])
-  with abas[0]:
+  tem_cio = animal.get("sexo") == "Fêmea" and animal["especie"] in ("Cão", "Gato")
+  nomes = ["📋 Histórico", "💉 Vacina", "💊 Desparasitação", "⚖️ Peso"] + (["🌸 Cio"] if tem_cio else []) + ["🩺 Veterinário", "🏡 Transferir"]
+  abas = dict(zip(nomes, st.tabs(nomes)))
+  with abas["📋 Histórico"]:
     historico(sb, animal)
-  with abas[1]:
+  with abas["💉 Vacina"]:
     formulario_registo(sb, animal, "vacina")
-  with abas[2]:
+  with abas["💊 Desparasitação"]:
     formulario_registo(sb, animal, "desparasitacao")
-  with abas[3]:
+  with abas["⚖️ Peso"]:
     secao_peso(sb, animal)
-  with abas[4]:
+  if tem_cio:
+    with abas["🌸 Cio"]:
+      secao_cio(sb, animal)
+  with abas["🩺 Veterinário"]:
     secao_acesso_vet(sb, animal)
-  with abas[5]:
+  with abas["🏡 Transferir"]:
     secao_transferir(sb, animal, user_id)
 
 
