@@ -86,6 +86,46 @@ INFO_DESPARASITACAO = {
 }
 
 
+# --- Desparasitação por espécie (sugestões; confirma sempre com o veterinário) ---
+_INT, _EXT, _PULG = list(INFO_DESPARASITACAO)
+PRODUTOS_DESPARASITACAO = {
+    "Cão": {
+        _INT: ["Drontal Plus", "Milbemax", "Canex", "Endogard", "Vetmax Plus"],
+        _EXT: ["Bravecto", "Simparica", "Frontline", "Seresto"],
+        _PULG: ["NexGard", "Simparica"],
+    },
+    "Gato": {
+        _INT: ["Drontal (gatos)", "Milbemax (gatos)", "Profender (spot-on)"],
+        _EXT: ["Bravecto (spot-on gatos)", "Frontline (gatos)", "Seresto (coleira gatos)", "Revolution (selamectina)"],
+        _PULG: ["Capstar (nitenpiram)"],
+    },
+}
+PARASITAS_CAO = ["Vermes redondos (Toxocara, Toxascaris)", "Ancilóstomos", "Tricurídeos (Trichuris)", "Ténias (Dipylidium, Taenia)",
+                 "Giardia", "Dirofilariose (Dirofilaria immitis)", "Pulgas", "Carraças", "Ácaros (sarna)", "Piolhos"]
+PARASITAS_GATO = ["Vermes redondos (Toxocara cati)", "Ancilóstomos", "Ténias (Dipylidium, Taenia)", "Giardia",
+                  "Vermes pulmonares (Aelurostrongylus)", "Pulgas", "Carraças", "Ácaros do ouvido (Otodectes)",
+                  "Sarna (Notoedres)", "Piolhos"]
+# parasitas habitualmente cobertos por cada categoria (pré-marcados na janela)
+_HAB_CAO = {_INT: PARASITAS_CAO[:4], _EXT: ["Pulgas", "Carraças"], _PULG: ["Pulgas"]}
+_HAB_GATO = {_INT: PARASITAS_GATO[:3], _EXT: ["Pulgas", "Carraças"], _PULG: ["Pulgas"]}
+
+
+def _esp(especie: str) -> str:
+  return "Gato" if especie == "Gato" else "Cão"
+
+
+def produtos_para(categoria: str, especie: str) -> list:
+  return PRODUTOS_DESPARASITACAO[_esp(especie)].get(categoria, [])
+
+
+def parasitas_para(especie: str) -> list:
+  return PARASITAS_GATO if especie == "Gato" else PARASITAS_CAO
+
+
+def parasitas_habituais(categoria: str, especie: str) -> list:
+  return (_HAB_GATO if especie == "Gato" else _HAB_CAO).get(categoria, [])
+
+
 def calcular_idade_pet(data_nascimento):
   hoje = date.today()
   if data_nascimento > hoje:
