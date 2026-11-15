@@ -36,6 +36,39 @@ INFO_VACINAS = {
 }
 
 # Dicionário com categorias, sugestões rápidas e os dias corretos de efeito
+# --- Espécies e vacinas felinas (ajusta ao protocolo do teu veterinário) ---
+for _v in INFO_VACINAS.values():
+  _v.setdefault("especies", ["Cão"])
+INFO_VACINAS["Vacina Antirrábica"]["especies"] = ["Cão", "Gato"]
+INFO_VACINAS["Vacina Antirrábica"]["doencas"] = ["Raiva"]
+INFO_VACINAS["Tripla Felina (V3)"] = {
+    "cat": "Vacina Polivalente", "especies": ["Gato"], "intervalo_filhote": 21, "intervalo_adulto": 365,
+    "doencas": ["Panleucopenia felina", "Rinotraqueíte felina (herpesvírus)", "Calicivirose felina"]}
+INFO_VACINAS["Quádrupla Felina (V4)"] = {
+    "cat": "Vacina Polivalente", "especies": ["Gato"], "intervalo_filhote": 21, "intervalo_adulto": 365,
+    "doencas": ["Panleucopenia felina", "Rinotraqueíte felina (herpesvírus)", "Calicivirose felina", "Clamidiose felina"]}
+INFO_VACINAS["Vacina contra Leucemia Felina (FeLV)"] = {
+    "cat": "Vacina Opcional", "especies": ["Gato"], "intervalo_filhote": 21, "intervalo_adulto": 365,
+    "doencas": ["Leucemia felina (FeLV)"]}
+
+# Listas para a janela de doenças (o utilizador marca as que a vacina protege)
+DOENCAS_CAO = ["Cinomose", "Parvovirose", "Hepatite Infecciosa", "Adenovirose Tipo 2", "Parainfluenza", "Coronavirose",
+               "Leptospirose", "Raiva", "Bordetella bronchiseptica", "Giardia duodenalis", "Leishmaniose"]
+DOENCAS_GATO = ["Panleucopenia felina", "Rinotraqueíte felina (herpesvírus)", "Calicivirose felina", "Clamidiose felina",
+                "Leucemia felina (FeLV)", "Raiva"]
+
+
+def vacinas_para(especie: str) -> list:
+  """Vacinas do catálogo aplicáveis à espécie (outras espécies: todas)."""
+  if especie not in ("Cão", "Gato"):
+    return list(INFO_VACINAS)
+  return [nome for nome, v in INFO_VACINAS.items() if especie in v.get("especies", ["Cão"])]
+
+
+def doencas_para(especie: str) -> list:
+  return DOENCAS_GATO if especie == "Gato" else DOENCAS_CAO
+
+
 INFO_DESPARASITACAO = {
     "Desparasitação Interna (Comprimido / Xarope)": {
         "cat": "Interna",
