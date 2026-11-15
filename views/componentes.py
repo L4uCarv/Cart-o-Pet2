@@ -14,7 +14,7 @@ from utils import relatorios_pets as rp
 from utils.exportar import para_excel
 from utils.recibo_pdf import gerar_recibo_pdf
 from utils.relatorios_pets_pdf import gerar_historico_pdf, gerar_resumo_pdf
-from utils.protocolos import INFO_DESPARASITACAO, INFO_VACINAS, calcular_idade_pet, doencas_para, vacinas_para
+from utils.protocolos import INFO_DESPARASITACAO, INFO_VACINAS, calcular_idade_pet, doencas_para, parasitas_habituais, parasitas_para, produtos_para, vacinas_para
 
 EXT = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "application/pdf": "pdf"}
 
@@ -119,25 +119,42 @@ def registar_animal(sb, user_id):
 
 
 # ---------- vacinas e desparasitações (vinheta obrigatória) ----------
-def seletor_doencas(animal, produto, habituais, k) -> str:
-  """Janela flutuante com a lista de doenças que a vacina protege. Devolve as marcadas, separadas por vírgula."""
-  lista = doencas_para(animal["especie"])
+def _janela_checklist(botao, ajuda, lista, habituais, k, rotulo_outra):
+  """Janela flutuante com caixas de seleção. Devolve a lista de itens marcados."""
   marcadas = []
-  with st.popover("🦠 Doenças que a vacina protege", use_container_width=True):
-    st.caption("Marca as doenças que esta vacina protege (confirma na vinheta). Vêm marcadas as habituais "
-               "desta vacina; podes alterar.")
+  with st.popover(botao, use_container_width=True):
+    st.caption(ajuda)
     cols = st.columns(2)
-    for i, doenca in enumerate(lista):
-      if cols[i % 2].checkbox(doenca, value=doenca in habituais, key=f"dz_{k}_{produto}_{i}"):
-        marcadas.append(doenca)
-    outra = st.text_input("Outra doença (opcional)", key=f"dzo_{k}_{produto}")
+    for i, item in enumerate(lista):
+      if cols[i % 2].checkbox(item, value=item in habituais, key=f"{k}_{i}"):
+        marcadas.append(item)
+    outra = st.text_input(rotulo_outra, key=f"{k}_outra")
   if outra.strip():
     marcadas.append(outra.strip())
-  if marcadas:
-    st.caption("🛡️ Protege contra: " + ", ".join(marcadas))
-  else:
-    st.caption("🛡️ Nenhuma doença marcada: abre a janela acima e marca pelo menos uma.")
+  return marcadas
+
+
+def seletor_doencas(animal, produto, habituais, k) -> str:
+  """Janela com as doenças que a vacina protege. Devolve as marcadas, separadas por vírgula."""
+  marcadas = _janela_checklist(
+      "🦠 Doenças que a vacina protege",
+      "Marca as doenças que esta vacina protege (confirma na vinheta). Vêm marcadas as habituais desta vacina; podes alterar.",
+      doencas_para(animal["especie"]), habituais, f"dz_{k}_{produto}", "Outra doença (opcional)")
+  st.caption("🛡️ Protege contra: " + ", ".join(marcadas) if marcadas
+             else "🛡️ Nenhuma doença marcada: abre a janela acima e marca pelo menos uma.")
   return ", ".join(marcadas)
+
+
+def seletor_parasitas(animal, categoria, tipo, k) -> str:
+  """Janela com os parasitas que o produto trata. Devolve 'Interna: a, b' (ou '' se nada marcado)."""
+  marcadas = _janela_checklist(
+      "🪱 Parasitas que o produto trata",
+      "Marca os parasitas que este produto trata (confirma na embalagem). Vêm marcados os habituais desta categoria; podes alterar.",
+      parasitas_para(animal["especie"]), parasitas_habituais(categoria, animal["especie"]),
+      f"pz_{k}_{categoria}", "Outro parasita (opcional)")
+  st.caption("🪱 Atua contra: " + ", ".join(marcadas) if marcadas
+             else "🪱 Nenhum parasita marcado: abre a janela acima e marca pelo menos um.")
+  return f"{tipo}: {', '.join(marcadas)}" if marcadas else ""
 
 
 def formulario_registo(sb, animal, tipo: str, clinico: bool = False):
@@ -151,9 +168,12 @@ def formulario_registo(sb, animal, tipo: str, clinico: bool = False):
   else:
     categoria = st.selectbox("Categoria", list(INFO_DESPARASITACAO), key=f"cat_{k}")
     dados = INFO_DESPARASITACAO[categoria]
-    st.caption("💡 Sugestões: " + ", ".join(dados["produtos_sugeridos"]))
+    st.caption("💡 Sugestões: " + ", ".join(produtos_para(categoria, animal["especie"])))
+    if animal["especie"] == "Gato":
+      st.caption("⚠️ Usa só produtos indicados para gatos: alguns produtos para cães (por exemplo, à base de permetrina) são tóxicos para gatos.")
     produto = st.text_input("Produto aplicado", key=f"prod_{k}")
-    dias, espectro = dados["dias"], dados["cat"]
+    dias = dados["dias"]
+    espectro = seletor_parasitas(animal, categoria, dados["cat"], k)
 
   c1, c2 = st.columns(2)
   data = c1.date_input("Data de aplicação", value=date.today(), max_value=date.today(), key=f"data_{k}")
@@ -176,8 +196,9 @@ def formulario_registo(sb, animal, tipo: str, clinico: bool = False):
   if st.button("Guardar registo", type="primary", key=f"gravar_{k}"):
     if not produto.strip():
       st.warning("Indica o produto aplicado.")
-    elif tipo == "vacina" and not espectro:
-      st.warning("Marca pelo menos uma doença que a vacina protege.")
+    elif not espectro:
+      st.warning("Marca pelo menos uma doença que a vacina protege." if tipo == "vacina"
+                 else "Marca pelo menos um parasita que o produto trata.")
     elif vinheta is None:
       st.warning("A imagem da vinheta é obrigatória.")
     elif validade and validade < data:
@@ -231,8 +252,8 @@ def historico(sb, animal):
       else:
         icone = "💉" if r["tipo"] == "vacina" else "💊"
         st.markdown(f"**{icone} {r['nome_produto']}** · {fmt(data)}")
-        if r["tipo"] == "vacina" and r.get("espectro_finalidade"):
-          st.caption(f"🛡️ Protege contra: {r['espectro_finalidade']}")
+        if r.get("espectro_finalidade"):
+          st.caption(("🛡️ Protege contra: " if r["tipo"] == "vacina" else "🪱 ") + r["espectro_finalidade"])
         st.caption(estado_reforco(r.get("proxima_dose")))
         detalhes = [x for x in [f"lote {r['numero_lote']}" if r.get("numero_lote") else "",
                                 f"validade {fmt(r['data_validade'])}" if r.get("data_validade") else "",
