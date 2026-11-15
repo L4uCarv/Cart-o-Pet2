@@ -40,8 +40,10 @@ def _tabela(cab, linhas, larguras):
 
 
 def _produto(r) -> str:
-  e = r.get("espectro_finalidade") if r["tipo"] == "vacina" else ""
-  return f"{r['nome_produto']} (protege: {e})" if e else r["nome_produto"]
+  e = r.get("espectro_finalidade") or ""
+  if not e:
+    return r["nome_produto"]
+  return f"{r['nome_produto']} ({'protege: ' if r['tipo'] == 'vacina' else ''}{e})"
 
 
 def _cabecalho(titulo, subtitulo):
