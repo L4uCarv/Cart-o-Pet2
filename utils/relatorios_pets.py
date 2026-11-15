@@ -79,7 +79,7 @@ def resumo_dfs(animais, registos, consultas, pesos):
     })
     for r in sv:
       sit.append({"Animal": a["nome"], "Tipo": "Vacina" if r["tipo"] == "vacina" else "Desparasitação", "Produto": r["nome_produto"],
-                  "Protege contra": r.get("espectro_finalidade") if r["tipo"] == "vacina" else "",
+                  "Protege / atua contra": r.get("espectro_finalidade") or "",
                   "Última aplicação": fmt_d(r["data_aplicacao"]), "Próximo reforço": fmt_d(r.get("proxima_dose")),
                   "Estado": estado_reforco(r.get("proxima_dose")), "Lote": r.get("numero_lote") or "", "Validação": validacao_txt(r)})
   return pd.DataFrame(linhas), pd.DataFrame(sit)
@@ -91,7 +91,7 @@ def historico_dfs(animais, registos, consultas, pesos):
   for r in sorted(ativos(registos), key=lambda r: r["data_aplicacao"], reverse=True):
     vac.append({"Animal": nomes.get(r["animal_id"], ""), "Data": fmt_d(r["data_aplicacao"]),
                 "Tipo": "Vacina" if r["tipo"] == "vacina" else "Desparasitação", "Produto": r["nome_produto"],
-                "Protege contra": r.get("espectro_finalidade") if r["tipo"] == "vacina" else "",
+                "Protege / atua contra": r.get("espectro_finalidade") or "",
                 "Próximo reforço": fmt_d(r.get("proxima_dose")), "Lote": r.get("numero_lote") or "",
                 "Validade do lote": fmt_d(r.get("data_validade")), "Fabricante": r.get("fabricante") or "",
                 "Via": r.get("via_administracao") or "", "Peso (kg)": r.get("peso_clinico"), "Temperatura (°C)": r.get("temperatura_clinica"),
