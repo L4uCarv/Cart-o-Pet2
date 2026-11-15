@@ -1,10 +1,21 @@
-from datetime import date
+import re
+import unicodedata
 
 import pandas as pd
 import streamlit as st
 
 from services.supabase_client import erro
 from views import componentes as c
+from views.ninhadas import render_ninhadas
+
+
+def _norm(texto) -> str:
+  t = unicodedata.normalize("NFKD", str(texto or "")).encode("ascii", "ignore").decode()
+  return t.lower().strip()
+
+
+def _alnum(texto) -> str:
+  return re.sub(r"[^a-z0-9]", "", _norm(texto))
 
 
 def render_criador_dashboard(sb):
@@ -46,32 +57,29 @@ def render_criador_dashboard(sb):
 
   with aba3:
     st.caption("Consulta (só leitura) dos animais dos membros que aceitaram o convite.")
+    membros_dados = sb.rpc("listar_membros_canil").execute().data or []
+    nomes = {m["membro_id"]: m["nome"] for m in membros_dados}
     dos_membros = (
         sb.table("animais").select("*").neq("tutor_id", user_id)
         .is_("arquivado_em", "null").order("nome").execute().data
     )
-    c.previsoes_cio(sb, dos_membros)
-    c.painel_animal(sb, dos_membros, user_id, dono=False)
+    busca = st.text_input("🔎 Pesquisar por nome do animal ou microchip", key="busca_membros")
+    q, qc = _norm(busca), _alnum(busca)
+    filtrados = [a for a in dos_membros if not q or q in _norm(a["nome"]) or (qc and qc in _alnum(a.get("microchip")))]
+    if dos_membros:
+      st.caption(f"{len(filtrados)} de {len(dos_membros)} animais")
+    if dos_membros and not filtrados:
+      st.info("Nenhum animal corresponde à pesquisa.")
+    if filtrados:
+      st.dataframe(pd.DataFrame([{
+          "Animal": a["nome"], "Espécie": a["especie"], "Raça": a.get("raca") or "", "Sexo": a.get("sexo") or "",
+          "Microchip": a.get("microchip") or "", "Membro": nomes.get(a["tutor_id"], "")} for a in filtrados]),
+          use_container_width=True, hide_index=True)
+    c.previsoes_cio(sb, filtrados, nomes_donos=nomes)
+    c.painel_animal(sb, filtrados, user_id, dono=False, nomes_donos=nomes)
 
   with aba4:
-    with st.form("form_ninhada", clear_on_submit=True):
-      nome = st.text_input("Identificação da ninhada (ex.: Ninhada Luna)")
-      nasc = st.date_input("Data de nascimento", value=date.today(), max_value=date.today())
-      qtd = st.number_input("Número de filhotes", 1, 20, 4)
-      obs = st.text_area("Observações")
-      if st.form_submit_button("Guardar ninhada"):
-        try:
-          sb.table("ninhadas").insert({
-              "tutor_id": user_id, "nome_ninhada": nome.strip(),
-              "data_nascimento": nasc.isoformat(), "quantidade_filhotes": int(qtd),
-              "observacoes": obs.strip() or None,
-          }).execute()
-          st.success("Ninhada guardada.")
-        except Exception as e:
-          st.error(erro(e))
-    ninhadas = sb.table("ninhadas").select("nome_ninhada, data_nascimento, quantidade_filhotes").eq("tutor_id", user_id).order("data_nascimento", desc=True).execute().data
-    if ninhadas:
-      st.dataframe(pd.DataFrame(ninhadas), use_container_width=True, hide_index=True)
+    render_ninhadas(sb, user_id)
 
   with aba5:
     c.pagamentos(sb, user_id)
