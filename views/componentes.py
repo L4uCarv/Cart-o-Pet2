@@ -14,7 +14,7 @@ from utils import relatorios_pets as rp
 from utils.exportar import para_excel
 from utils.recibo_pdf import gerar_recibo_pdf
 from utils.relatorios_pets_pdf import gerar_historico_pdf, gerar_resumo_pdf
-from utils.protocolos import INFO_DESPARASITACAO, INFO_VACINAS, calcular_idade_pet
+from utils.protocolos import INFO_DESPARASITACAO, INFO_VACINAS, calcular_idade_pet, doencas_para, vacinas_para
 
 EXT = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "application/pdf": "pdf"}
 
@@ -119,14 +119,35 @@ def registar_animal(sb, user_id):
 
 
 # ---------- vacinas e desparasitações (vinheta obrigatória) ----------
+def seletor_doencas(animal, produto, habituais, k) -> str:
+  """Janela flutuante com a lista de doenças que a vacina protege. Devolve as marcadas, separadas por vírgula."""
+  lista = doencas_para(animal["especie"])
+  marcadas = []
+  with st.popover("🦠 Doenças que a vacina protege", use_container_width=True):
+    st.caption("Marca as doenças que esta vacina protege (confirma na vinheta). Vêm marcadas as habituais "
+               "desta vacina; podes alterar.")
+    cols = st.columns(2)
+    for i, doenca in enumerate(lista):
+      if cols[i % 2].checkbox(doenca, value=doenca in habituais, key=f"dz_{k}_{produto}_{i}"):
+        marcadas.append(doenca)
+    outra = st.text_input("Outra doença (opcional)", key=f"dzo_{k}_{produto}")
+  if outra.strip():
+    marcadas.append(outra.strip())
+  if marcadas:
+    st.caption("🛡️ Protege contra: " + ", ".join(marcadas))
+  else:
+    st.caption("🛡️ Nenhuma doença marcada: abre a janela acima e marca pelo menos uma.")
+  return ", ".join(marcadas)
+
+
 def formulario_registo(sb, animal, tipo: str, clinico: bool = False):
   k = chave(tipo, animal["id"])
   if tipo == "vacina":
-    produto = st.selectbox("Vacina", list(INFO_VACINAS), key=f"prod_{k}")
+    produto = st.selectbox("Vacina", vacinas_para(animal["especie"]), key=f"prod_{k}")
     info = INFO_VACINAS[produto]
     fase = st.radio("Fase do animal", ["Filhote", "Adulto"], horizontal=True, key=f"fase_{k}")
     dias = info["intervalo_filhote"] if fase == "Filhote" else info["intervalo_adulto"]
-    espectro = ", ".join(info["doencas"])
+    espectro = seletor_doencas(animal, produto, info["doencas"], k)
   else:
     categoria = st.selectbox("Categoria", list(INFO_DESPARASITACAO), key=f"cat_{k}")
     dados = INFO_DESPARASITACAO[categoria]
@@ -155,6 +176,8 @@ def formulario_registo(sb, animal, tipo: str, clinico: bool = False):
   if st.button("Guardar registo", type="primary", key=f"gravar_{k}"):
     if not produto.strip():
       st.warning("Indica o produto aplicado.")
+    elif tipo == "vacina" and not espectro:
+      st.warning("Marca pelo menos uma doença que a vacina protege.")
     elif vinheta is None:
       st.warning("A imagem da vinheta é obrigatória.")
     elif validade and validade < data:
@@ -208,6 +231,8 @@ def historico(sb, animal):
       else:
         icone = "💉" if r["tipo"] == "vacina" else "💊"
         st.markdown(f"**{icone} {r['nome_produto']}** · {fmt(data)}")
+        if r["tipo"] == "vacina" and r.get("espectro_finalidade"):
+          st.caption(f"🛡️ Protege contra: {r['espectro_finalidade']}")
         st.caption(estado_reforco(r.get("proxima_dose")))
         detalhes = [x for x in [f"lote {r['numero_lote']}" if r.get("numero_lote") else "",
                                 f"validade {fmt(r['data_validade'])}" if r.get("data_validade") else "",
