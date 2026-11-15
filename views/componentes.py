@@ -111,6 +111,7 @@ def registar_animal(sb, user_id):
       }).execute().data[0]
       if peso > 0:
         sb.table("pesos_animal").insert({"animal_id": novo["id"], "peso_kg": peso}).execute()
+      st.session_state["sel_animal_True"] = novo["id"]  # mostra logo o animal acabado de registar
       aviso(f"Animal **{nome.strip()}** registado.")
       novo_formulario()
       st.rerun()
@@ -411,7 +412,7 @@ def _situacao_cio(r) -> str:
   return f"a partir de {fmt(r['inicio'].isoformat())}" if r["inicio"] else ""
 
 
-def previsoes_cio(sb, animais):
+def previsoes_cio(sb, animais, nomes_donos=None):
   """Quadro com a previsão (cadelas) e a estimativa (gatas) de todas as fêmeas, mais avisos de proximidade."""
   fem = [a for a in animais if a.get("sexo") == "Fêmea" and a["especie"] in ("Cão", "Gato") and not a.get("esterilizado")]
   if not fem:
@@ -433,6 +434,9 @@ def previsoes_cio(sb, animais):
       alertas.append(f"🌸 **{a['nome']}** ({rotulo.lower()}): "
                      + ("está na janela do cio agora." if r["estado"] == "janela"
                         else f"cio possível a partir de {fmt(r['inicio'].isoformat())}."))
+  if nomes_donos:
+    for linha, a in zip(linhas, [x for x in fem]):
+      linha["Membro"] = nomes_donos.get(a["tutor_id"], "")
   with st.expander("🌸 Cio: previsões (cadelas) e estimativas (gatas)", expanded=bool(alertas)):
     for al in alertas:
       st.warning(al)
@@ -519,12 +523,23 @@ def secao_cio(sb, animal):
 
 
 # ---------- painel de um animal ----------
-def painel_animal(sb, animais, user_id, dono: bool = True):
+def painel_animal(sb, animais, user_id, dono: bool = True, nomes_donos=None):
   if not animais:
     st.info("Ainda não há animais para mostrar.")
     return
-  animal = st.selectbox("Animal", animais, format_func=lambda a: f"{a['nome']} ({a['especie']})", key=chave("sel", dono))
+  # A chave é estável (não muda com form_n): depois de guardar um registo, o animal escolhido mantém-se
+  def _rotulo(a):
+    base = f"{a['nome']} ({a['especie']})"
+    return base + (f" · Membro: {nomes_donos.get(a['tutor_id'], '?')}" if nomes_donos else "")
+  rotulos = {a["id"]: _rotulo(a) for a in animais}
+  chave_sel = f"sel_animal_{dono}"
+  if st.session_state.get(chave_sel) not in rotulos:
+    st.session_state.pop(chave_sel, None)
+  escolhido = st.selectbox("Animal", list(rotulos), format_func=rotulos.get, key=chave_sel)
+  animal = next(a for a in animais if a["id"] == escolhido)
   idade = calcular_idade_pet(date.fromisoformat(animal["data_nascimento"]))[0] if animal.get("data_nascimento") else "idade desconhecida"
+  if nomes_donos:
+    st.markdown(f"**Membro:** {nomes_donos.get(animal['tutor_id'], '?')}")
   st.caption(f"{animal.get('raca') or animal['especie']} · {animal.get('sexo') or ''} · {idade}"
              + (f" · microchip {animal['microchip']}" if animal.get("microchip") else ""))
   if not dono:
