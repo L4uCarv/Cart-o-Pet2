@@ -39,6 +39,11 @@ def _tabela(cab, linhas, larguras):
   return t
 
 
+def _produto(r) -> str:
+  e = r.get("espectro_finalidade") if r["tipo"] == "vacina" else ""
+  return f"{r['nome_produto']} (protege: {e})" if e else r["nome_produto"]
+
+
 def _cabecalho(titulo, subtitulo):
   return [Paragraph(_t(titulo), H1), Paragraph(_t(subtitulo), PEQ), Spacer(1, 4 * mm)]
 
@@ -79,7 +84,7 @@ def gerar_resumo_pdf(tutor_nome, animais, registos, consultas, pesos) -> bytes:
     bloco.append(Spacer(1, 2 * mm))
     sv = rp.situacao_vacinal(regs)
     if sv:
-      linhas = [[("Vacina" if r["tipo"] == "vacina" else "Desparasitação"), r["nome_produto"], rp.fmt_d(r["data_aplicacao"]),
+      linhas = [[("Vacina" if r["tipo"] == "vacina" else "Desparasitação"), _produto(r), rp.fmt_d(r["data_aplicacao"]),
                  rp.fmt_d(r.get("proxima_dose")), rp.estado_reforco(r.get("proxima_dose")), rp.validacao_txt(r)] for r in sv]
       bloco.append(_tabela(["Tipo", "Produto", "Última", "Próximo reforço", "Estado", "Validação"], linhas,
                            [24 * mm, 46 * mm, 20 * mm, 24 * mm, 30 * mm, 30 * mm]))
@@ -114,7 +119,7 @@ def gerar_historico_pdf(tutor_nome, animais, registos, consultas, pesos, imagens
 
     el.append(Paragraph("Vacinas e desparasitações", H2))
     if regs:
-      linhas = [[rp.fmt_d(r["data_aplicacao"]), "Vacina" if r["tipo"] == "vacina" else "Desparasit.", r["nome_produto"],
+      linhas = [[rp.fmt_d(r["data_aplicacao"]), "Vacina" if r["tipo"] == "vacina" else "Desparasit.", _produto(r),
                  (f"Lote {r['numero_lote']}" if r.get("numero_lote") else "") + (f" · val. {rp.fmt_d(r['data_validade'])}" if r.get("data_validade") else ""),
                  rp.fmt_d(r.get("proxima_dose")), rp.validacao_txt(r)] for r in regs]
       el.append(_tabela(["Data", "Tipo", "Produto", "Lote / validade", "Próx. reforço", "Validação"], linhas,
