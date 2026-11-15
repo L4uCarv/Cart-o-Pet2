@@ -41,15 +41,13 @@ for _v in INFO_VACINAS.values():
   _v.setdefault("especies", ["Cão"])
 INFO_VACINAS["Vacina Antirrábica"]["especies"] = ["Cão", "Gato"]
 INFO_VACINAS["Vacina Antirrábica"]["doencas"] = ["Raiva"]
-INFO_VACINAS["Tripla Felina (V3)"] = {
-    "cat": "Vacina Polivalente", "especies": ["Gato"], "intervalo_filhote": 21, "intervalo_adulto": 365,
-    "doencas": ["Panleucopenia felina", "Rinotraqueíte felina (herpesvírus)", "Calicivirose felina"]}
-INFO_VACINAS["Quádrupla Felina (V4)"] = {
-    "cat": "Vacina Polivalente", "especies": ["Gato"], "intervalo_filhote": 21, "intervalo_adulto": 365,
-    "doencas": ["Panleucopenia felina", "Rinotraqueíte felina (herpesvírus)", "Calicivirose felina", "Clamidiose felina"]}
+_FELINAS = {"cat": "Vacina Polivalente", "especies": ["Gato"], "intervalo_filhote": 21, "intervalo_adulto": 365}
+_V3 = ["Panleucopenia felina", "Rinotraqueíte felina (herpesvírus)", "Calicivirose felina"]
+INFO_VACINAS["Polivalente V3 (Tríplice)"] = {**_FELINAS, "doencas": _V3}
+INFO_VACINAS["Polivalente V4 (Quádrupla)"] = {**_FELINAS, "doencas": _V3 + ["Clamidiose felina"]}
+INFO_VACINAS["Polivalente V5 (Quíntupla)"] = {**_FELINAS, "doencas": _V3 + ["Clamidiose felina", "Leucemia felina (FeLV)"]}
 INFO_VACINAS["Vacina contra Leucemia Felina (FeLV)"] = {
-    "cat": "Vacina Opcional", "especies": ["Gato"], "intervalo_filhote": 21, "intervalo_adulto": 365,
-    "doencas": ["Leucemia felina (FeLV)"]}
+    **_FELINAS, "cat": "Vacina Opcional", "doencas": ["Leucemia felina (FeLV)"]}
 
 # Listas para a janela de doenças (o utilizador marca as que a vacina protege)
 DOENCAS_CAO = ["Cinomose", "Parvovirose", "Hepatite Infecciosa", "Adenovirose Tipo 2", "Parainfluenza", "Coronavirose",
